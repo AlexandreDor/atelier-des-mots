@@ -63,7 +63,12 @@ function createConfig(
 }
 
 function dictionaryCategory(dictionary: Dictionary) {
-  if (dictionary.id.startsWith("fr-lieux-")) return "Lieux";
+  if (
+    dictionary.id.startsWith("fr-lieux-") ||
+    dictionary.id === "ru-rues-routes-romanise"
+  ) {
+    return "Lieux";
+  }
   return /(?:^|-)(?:prenoms?|prénoms?)(?:-|$)/i.test(
     `${dictionary.id}-${dictionary.name}`,
   )
