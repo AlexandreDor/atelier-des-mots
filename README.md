@@ -1,10 +1,28 @@
-🌐 [Ouvrir Atelier des mots](https://atelier-des-mots.alexandre-dorier.chatgpt.site)
+# Atelier des mots
 
-# vinext-starter
+[Ouvrir Atelier des mots](https://atelier-des-mots.alexandre-dorier.chatgpt.site)
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+Générateur et laboratoire d’analyse pour inventer des mots, comparer des
+dictionnaires et créer des noms de lieux d’inspiration française.
+
+## Noms de lieux
+
+La route `/lieux` propose trois générateurs spécialisés :
+
+- villes et villages ;
+- rivières et fleuves ;
+- montagnes.
+
+Les cinq corpus intégrés réunissent 8 389 toponymes. Les communes proviennent
+du [découpage administratif Etalab](https://github.com/datagouv/decoupage-administratif)
+(Code officiel géographique de l’INSEE, Licence Ouverte), les cours d’eau et
+reliefs de [GeoNames](https://www.geonames.org/) (CC BY 4.0), et la distinction
+des fleuves de la
+[liste Wikipédia](https://fr.wikipedia.org/wiki/Liste_de_fleuves_de_France)
+(CC BY-SA).
+
+Le script `scripts/build-place-dictionaries.mjs` permet de reconstruire les
+cinq corpus à partir des trois exports sources.
 
 ## Prerequisites
 
