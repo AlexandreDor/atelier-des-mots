@@ -2195,10 +2195,21 @@ footer a:hover {
   color: var(--mint);
 }
 
-.places-settings > .section-index,
+.places-model-settings > .section-index,
 .places-control-section > .section-index {
   display: block;
   margin-bottom: 14px;
+}
+
+.places-language {
+  margin-top: 14px;
+}
+
+.places-language small {
+  color: var(--quiet);
+  font-size: 0.62rem;
+  font-weight: 500;
+  line-height: 1.4;
 }
 
 .places-field {
@@ -2256,28 +2267,8 @@ footer a:hover {
   color: var(--mint);
 }
 
-.places-series-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 9px;
-}
-
-.places-seed {
-  margin-top: 14px;
-}
-
-.places-seed > div {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 40px;
-  gap: 7px;
-}
-
-.places-seed button {
-  border: 1px solid #315b7a;
-  border-radius: 8px;
-  background: #173f61;
-  color: var(--mint);
-  font-size: 1rem;
+.places-model-settings .label-row {
+  margin-top: 16px;
 }
 
 .places-results {
@@ -2733,8 +2724,7 @@ footer a:hover {
     flex-direction: column;
   }
 
-  .place-name-grid,
-  .places-series-grid {
+  .place-name-grid {
     grid-template-columns: 1fr;
   }
 
