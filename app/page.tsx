@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import dictionaryData from "./data/dictionaries.json";
 import {
   Algorithm,
@@ -915,8 +916,8 @@ export default function Home() {
           <span>Atelier des mots</span>
         </a>
         <nav aria-label="Navigation principale">
-          <a href="#dictionnaires">Dictionnaires</a>
-          <a href="#methode">Méthode</a>
+          <Link className="is-active" href="/">Générateur</Link>
+          <Link href="/analyse">Analyse</Link>
         </nav>
         <span className="lab-badge" aria-label="Mode laboratoire">LAB</span>
       </header>
