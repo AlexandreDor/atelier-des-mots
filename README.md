@@ -1,3 +1,5 @@
+🌐 [Ouvrir Atelier des mots](https://atelier-des-mots.alexandre-dorier.chatgpt.site)
+
 # vinext-starter
 
 A clean full-stack starter running on
