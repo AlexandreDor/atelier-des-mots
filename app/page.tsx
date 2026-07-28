@@ -217,7 +217,10 @@ function isFirstNameDictionary(dictionary: Dictionary) {
 }
 
 function isPlaceDictionary(dictionary: Dictionary) {
-  return dictionary.id.startsWith("fr-lieux-");
+  return (
+    dictionary.id.startsWith("fr-lieux-") ||
+    dictionary.id === "ru-rues-routes-romanise"
+  );
 }
 
 const DEFAULT_DICTIONARY =
