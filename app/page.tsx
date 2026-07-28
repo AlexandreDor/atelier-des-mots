@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import dictionaryData from "./data/dictionaries.json";
+import placeDictionaryData from "./data/place-dictionaries.json";
 import {
   Algorithm,
   GeneratorConfig,
@@ -17,7 +18,7 @@ import {
 } from "./generator";
 
 type SortMode = "random" | "alphabetical" | "probability";
-type DictionaryCategory = "first-names" | "words";
+type DictionaryCategory = "first-names" | "words" | "places";
 
 type Dictionary = {
   id: string;
@@ -43,7 +44,10 @@ type GenerationResponse = {
 };
 
 const REMOVED_DICTIONARY_IDS = new Set(["francais", "botanique", "matiere"]);
-const INITIAL_DICTIONARIES = dictionaryData as Dictionary[];
+const INITIAL_DICTIONARIES = [
+  ...(dictionaryData as Dictionary[]),
+  ...(placeDictionaryData as Dictionary[]),
+];
 const DICTIONARY_LANGUAGE_ORDER = [
   "fr",
   "en",
@@ -210,6 +214,10 @@ function isFirstNameDictionary(dictionary: Dictionary) {
   return /(?:^|-)(?:prenoms?|prénoms?)(?:-|$)/i.test(
     `${dictionary.id}-${dictionary.name}`,
   );
+}
+
+function isPlaceDictionary(dictionary: Dictionary) {
+  return dictionary.id.startsWith("fr-lieux-");
 }
 
 const DEFAULT_DICTIONARY =
@@ -440,8 +448,15 @@ export default function Home() {
         id: "words",
         label: "Mots",
         dictionaries: sorted.filter(
-          (dictionary) => !isFirstNameDictionary(dictionary),
+          (dictionary) =>
+            !isFirstNameDictionary(dictionary) &&
+            !isPlaceDictionary(dictionary),
         ),
+      },
+      {
+        id: "places",
+        label: "Lieux",
+        dictionaries: sorted.filter(isPlaceDictionary),
       },
     ];
   }, [dictionaries]);
@@ -917,6 +932,7 @@ export default function Home() {
         </a>
         <nav aria-label="Navigation principale">
           <Link className="is-active" href="/">Générateur</Link>
+          <Link href="/lieux">Lieux</Link>
           <Link href="/analyse">Analyse</Link>
         </nav>
         <span className="lab-badge" aria-label="Mode laboratoire">LAB</span>
@@ -977,7 +993,9 @@ export default function Home() {
                 {selectedByCategory["first-names"]} prénom
                 {selectedByCategory["first-names"] > 1 ? "s" : ""} ·{" "}
                 {selectedByCategory.words} liste
-                {selectedByCategory.words > 1 ? "s" : ""} de mots
+                {selectedByCategory.words > 1 ? "s" : ""} de mots ·{" "}
+                {selectedByCategory.places} lieu
+                {selectedByCategory.places > 1 ? "x" : ""}
               </p>
               <div className="source-tools">
                 <span>Influence normalisée</span>
