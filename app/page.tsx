@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import dictionaryData from "./data/dictionaries.json";
+import natureDictionaryData from "./data/nature-dictionaries.json";
 import placeDictionaryData from "./data/place-dictionaries.json";
 import {
   Algorithm,
@@ -18,7 +19,7 @@ import {
 } from "./generator";
 
 type SortMode = "random" | "alphabetical" | "probability";
-type DictionaryCategory = "first-names" | "words" | "places";
+type DictionaryCategory = "first-names" | "words" | "places" | "nature";
 
 type Dictionary = {
   id: string;
@@ -47,6 +48,7 @@ const REMOVED_DICTIONARY_IDS = new Set(["francais", "botanique", "matiere"]);
 const INITIAL_DICTIONARIES = [
   ...(dictionaryData as Dictionary[]),
   ...(placeDictionaryData as Dictionary[]),
+  ...(natureDictionaryData as Dictionary[]),
 ];
 const DICTIONARY_LANGUAGE_ORDER = [
   "fr",
@@ -221,6 +223,10 @@ function isPlaceDictionary(dictionary: Dictionary) {
     dictionary.id.startsWith("fr-lieux-") ||
     dictionary.id === "ru-rues-routes-romanise"
   );
+}
+
+function isNatureDictionary(dictionary: Dictionary) {
+  return dictionary.id.startsWith("fr-nature-");
 }
 
 const DEFAULT_DICTIONARY =
@@ -453,13 +459,19 @@ export default function Home() {
         dictionaries: sorted.filter(
           (dictionary) =>
             !isFirstNameDictionary(dictionary) &&
-            !isPlaceDictionary(dictionary),
+            !isPlaceDictionary(dictionary) &&
+            !isNatureDictionary(dictionary),
         ),
       },
       {
         id: "places",
         label: "Lieux",
         dictionaries: sorted.filter(isPlaceDictionary),
+      },
+      {
+        id: "nature",
+        label: "Nature et sciences",
+        dictionaries: sorted.filter(isNatureDictionary),
       },
     ];
   }, [dictionaries]);
@@ -1889,6 +1901,22 @@ export default function Home() {
             rel="noreferrer"
           >
             voies russes romanisées
+          </a>
+          {" · "}
+          <a
+            href="https://www.gbif.org/fr/dataset/0e61f8fe-7d25-4f81-ada7-d970bbb2c6d6"
+            target="_blank"
+            rel="noreferrer"
+          >
+            TAXREF
+          </a>
+          {" · "}
+          <a
+            href="https://fr.wikipedia.org/wiki/Liste_de_min%C3%A9raux"
+            target="_blank"
+            rel="noreferrer"
+          >
+            minéraux
           </a>
         </span>
       </footer>
