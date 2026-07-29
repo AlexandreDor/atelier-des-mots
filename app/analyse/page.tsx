@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import dictionaryData from "../data/dictionaries.json";
+import natureDictionaryData from "../data/nature-dictionaries.json";
 import placeDictionaryData from "../data/place-dictionaries.json";
 import {
   Algorithm,
@@ -26,6 +27,7 @@ const REMOVED_DICTIONARY_IDS = new Set(["francais", "botanique", "matiere"]);
 const INITIAL_DICTIONARIES = [
   ...(dictionaryData as Dictionary[]),
   ...(placeDictionaryData as Dictionary[]),
+  ...(natureDictionaryData as Dictionary[]),
 ];
 const DEFAULT_SELECTED_IDS = INITIAL_DICTIONARIES.filter((dictionary) =>
   dictionary.id.includes("-mots"),
@@ -63,6 +65,9 @@ function createConfig(
 }
 
 function dictionaryCategory(dictionary: Dictionary) {
+  if (dictionary.id.startsWith("fr-nature-")) {
+    return "Nature et sciences";
+  }
   if (
     dictionary.id.startsWith("fr-lieux-") ||
     dictionary.id === "ru-rues-routes-romanise"
@@ -274,7 +279,9 @@ export default function AnalysisPage() {
     );
   }
 
-  function selectCategory(category: "Prénoms" | "Mots" | "Lieux") {
+  function selectCategory(
+    category: "Prénoms" | "Mots" | "Lieux" | "Nature et sciences",
+  ) {
     setSelectedIds(
       dictionaries
         .filter((dictionary) => dictionaryCategory(dictionary) === category)
@@ -364,6 +371,12 @@ export default function AnalysisPage() {
                 </button>
                 <button type="button" onClick={() => selectCategory("Lieux")}>
                   Tous les lieux
+                </button>
+                <button
+                  type="button"
+                  onClick={() => selectCategory("Nature et sciences")}
+                >
+                  Toute la nature
                 </button>
                 <button type="button" onClick={() => setSelectedIds([])}>
                   Aucun
