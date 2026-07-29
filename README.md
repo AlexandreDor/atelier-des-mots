@@ -3,7 +3,28 @@
 [Ouvrir Atelier des mots](https://atelier-des-mots.alexandre-dorier.chatgpt.site)
 
 Générateur et laboratoire d’analyse pour inventer des mots, comparer des
-dictionnaires et créer des noms de lieux d’inspiration française.
+dictionnaires, créer des noms de lieux d’inspiration française et explorer le
+vocabulaire de la nature.
+
+## Nature et sciences
+
+Le quatrième thème du générateur réunit quatre dictionnaires français :
+
+- animaux ;
+- plantes ;
+- champignons ;
+- minéraux.
+
+Les noms d’espèces proviennent de
+[TAXREF](https://www.gbif.org/fr/dataset/0e61f8fe-7d25-4f81-ada7-d970bbb2c6d6),
+le référentiel taxonomique national diffusé par le MNHN (Licence Ouverte). Les
+noms de minéraux sont extraits de la
+[liste Wikipédia](https://fr.wikipedia.org/wiki/Liste_de_min%C3%A9raux)
+(CC BY-SA).
+
+Le script `scripts/build-nature-dictionaries.mjs` reconstruit les quatre corpus
+à partir de l’export Darwin Core de TAXREF et des pages alphabétiques de la
+liste des minéraux.
 
 ## Noms de lieux
 
