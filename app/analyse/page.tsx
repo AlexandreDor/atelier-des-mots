@@ -1,8 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
-import dictionaryData from "../data/dictionaries.json";
+import {
+  INITIAL_DICTIONARIES,
+  isFirstNameDictionary,
+  type Dictionary,
+} from "../dictionaries";
 import {
   Algorithm,
   GeneratorConfig,
@@ -10,19 +14,11 @@ import {
   prepareModel,
   wordProbabilityBreakdown,
 } from "../generator";
-
-type Dictionary = {
-  id: string;
-  name: string;
-  words: string[];
-};
+import { useDictionaries } from "../use-dictionaries";
 
 type AnalysisMode = "word" | "similarity";
 type SimilarityMetric = "patterns" | "vocabulary";
 
-const STORAGE_KEY = "atelier-des-mots:dictionaries:v1";
-const REMOVED_DICTIONARY_IDS = new Set(["francais", "botanique", "matiere"]);
-const INITIAL_DICTIONARIES = dictionaryData as Dictionary[];
 const DEFAULT_SELECTED_IDS = INITIAL_DICTIONARIES.filter((dictionary) =>
   dictionary.id.includes("-mots"),
 )
@@ -59,11 +55,7 @@ function createConfig(
 }
 
 function dictionaryCategory(dictionary: Dictionary) {
-  return /(?:^|-)(?:prenoms?|prénoms?)(?:-|$)/i.test(
-    `${dictionary.id}-${dictionary.name}`,
-  )
-    ? "Prénoms"
-    : "Mots";
+  return isFirstNameDictionary(dictionary) ? "Prénoms" : "Mots";
 }
 
 function shortName(dictionary: Dictionary) {
@@ -127,7 +119,7 @@ function algorithmLabel(algorithm: Algorithm) {
 }
 
 export default function AnalysisPage() {
-  const [dictionaries, setDictionaries] = useState(INITIAL_DICTIONARIES);
+  const { dictionaries } = useDictionaries();
   const [mode, setMode] = useState<AnalysisMode>("word");
   const [word, setWord] = useState("brumelle");
   const [selectedIds, setSelectedIds] =
@@ -136,36 +128,6 @@ export default function AnalysisPage() {
   const [order, setOrder] = useState(2);
   const [temperature, setTemperature] = useState(0.9);
   const [metric, setMetric] = useState<SimilarityMetric>("patterns");
-
-  useEffect(() => {
-    try {
-      const stored = window.localStorage.getItem(STORAGE_KEY);
-      if (!stored) return;
-      const parsed = JSON.parse(stored) as Dictionary[];
-      if (!Array.isArray(parsed) || !parsed.length) return;
-      const retained = parsed.filter(
-        (dictionary) => !REMOVED_DICTIONARY_IDS.has(dictionary.id),
-      );
-      const storedIds = new Set(retained.map((dictionary) => dictionary.id));
-      const merged = [
-        ...INITIAL_DICTIONARIES.filter(
-          (dictionary) => !storedIds.has(dictionary.id),
-        ),
-        ...retained,
-      ];
-      const timeout = window.setTimeout(() => {
-        setDictionaries(merged);
-        setSelectedIds((current) =>
-          current.filter((id) =>
-            merged.some((dictionary) => dictionary.id === id),
-          ),
-        );
-      }, 0);
-      return () => window.clearTimeout(timeout);
-    } catch {
-      // Les dictionnaires intégrés restent disponibles.
-    }
-  }, []);
 
   const selectedDictionaries = useMemo(
     () =>
@@ -481,7 +443,9 @@ export default function AnalysisPage() {
                         Le score mesure la probabilité moyenne de chaque
                         enchaînement, fin du mot comprise. Il permet de comparer
                         les dictionnaires pour un même mot, mais ne représente
-                        pas un pourcentage d’appartenance.
+                        pas un pourcentage d’appartenance. Il dépend aussi de la
+                        température choisie : comparez les résultats avec les
+                        mêmes réglages.
                       </p>
                     </div>
                   </>
