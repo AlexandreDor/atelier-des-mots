@@ -222,7 +222,6 @@ export default function Home() {
       selectedSources(INITIAL_DICTIONARIES, initialWeights),
       INITIAL_CONFIG,
     );
-  const [selectedId, setSelectedId] = useState(DEFAULT_DICTIONARY.id);
   const [managedDictionaryId, setManagedDictionaryId] = useState("");
   const [dictionaryCategory, setDictionaryCategory] =
     useState<DictionaryCategory>("first-names");
@@ -582,7 +581,6 @@ export default function Home() {
       delete next[id];
       return next;
     });
-    if (checked) setSelectedId(id);
     setMessage("");
   }
 
@@ -641,7 +639,6 @@ export default function Home() {
       ]),
     );
     setDictionaryWeights(nextWeights);
-    setSelectedId(chosen[0].id);
     setMessage(
       `${sourceCount} dictionnaire${sourceCount > 1 ? "s" : ""} tiré${sourceCount > 1 ? "s" : ""} au hasard.`,
     );
@@ -760,8 +757,6 @@ export default function Home() {
         ? availableWeights
         : { [dictionaries[0].id]: 1 },
     );
-    const firstId = Object.keys(availableWeights)[0];
-    if (firstId) setSelectedId(firstId);
     setMessage(
       `Préréglage « ${preset.name} » chargé. Appliquez pour générer.`,
     );
@@ -779,7 +774,6 @@ export default function Home() {
   function selectManagedDictionary(id: string) {
     setManagedDictionaryId(id);
     if (id) {
-      setSelectedId(id);
       setDictionaryWeights((current) => ({
         ...current,
         [id]: current[id] || 1,
@@ -797,7 +791,6 @@ export default function Home() {
       delete next[id];
       return Object.keys(next).length ? next : { [DEFAULT_DICTIONARY.id]: 1 };
     });
-    setSelectedId(DEFAULT_DICTIONARY.id);
     setManagedDictionaryId("");
     setMessage(`« ${deleted?.name ?? "Dictionnaire"} » supprimé.`);
   }

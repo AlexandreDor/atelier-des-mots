@@ -132,21 +132,21 @@ test("applique ensemble les contraintes normalisées", () => {
     ...baseConfig,
     minLength: 5,
     maxLength: 5,
-    count: 2,
+    count: 1,
     seed: "constraints",
     constraints: {
       startsWith: " A-",
       endsWith: "É",
       includes: "B",
       excludes: "X",
-      allowDictionaryWords: false,
+      allowDictionaryWords: true,
     },
   };
   const model = prepareModel(
     [{
       id: "constraints-fixture",
       name: "Contraintes",
-      words: ["abacé", "abaré", "abiré", "aburé", "abosé"],
+      words: ["ababé"],
       weight: 1,
     }],
     config,
@@ -158,8 +158,14 @@ test("applique ensemble les contraintes normalisées", () => {
     assert.ok(word.endsWith("é"));
     assert.ok(word.includes("b"));
     assert.ok(!word.includes("x"));
-    assert.ok(!model.sourceWords.has(word));
   });
+  assert.deepEqual(
+    generateBatch(model, {
+      ...config,
+      constraints: { ...config.constraints, allowDictionaryWords: false },
+    }),
+    [],
+  );
 });
 
 test("calcule des scores cohérents et pénalise une transition inconnue", () => {
