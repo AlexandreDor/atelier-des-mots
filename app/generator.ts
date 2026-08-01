@@ -217,6 +217,7 @@ type SourceModel = {
 };
 
 const sourceModelCache = new Map<string, SourceModel>();
+const sourceContentHashCache = new WeakMap<string[], number>();
 
 export function normalizeWord(value: string) {
   return value
@@ -333,10 +334,24 @@ function sourceModel(
   const normalizedWords = Array.from(
     new Set(source.words.map(normalizeWord).filter(Boolean)),
   );
+  let contentHash = sourceContentHashCache.get(source.words);
+  if (contentHash === undefined) {
+    let computedHash = 2166136261;
+    normalizedWords.forEach((word) => {
+      for (const character of word) {
+        computedHash ^= character.codePointAt(0) ?? 0;
+        computedHash = Math.imul(computedHash, 16777619);
+      }
+      computedHash ^= 0;
+      computedHash = Math.imul(computedHash, 16777619);
+    });
+    contentHash = computedHash;
+    sourceContentHashCache.set(source.words, contentHash);
+  }
   const cacheKey = JSON.stringify({
     id: source.id,
     size: normalizedWords.length,
-    last: normalizedWords.at(-1) ?? "",
+    contentHash: contentHash >>> 0,
     orders: requestedOrders,
     phoneticOrder: usePhonetic ? phoneticOrder : 0,
     phoneticGroups: usePhonetic ? phoneticGroups : [],
