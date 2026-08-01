@@ -144,6 +144,19 @@ export const DATASET_METADATA = {
   "es-prenoms": fakerMetadata("espagnols"),
   "ru-prenoms-cyrillique": fakerMetadata("russes"),
   "ru-prenoms-romanise": fakerMetadata("russes", "Romanisation, "),
+  "en-rues-routes": {
+    source: "Wikimedia Commons · Streets in London by name",
+    sourceUrl:
+      "https://commons.wikimedia.org/wiki/Category:Streets_in_London_by_name",
+    license: "CC-BY-SA-4.0",
+    licenseUrl: "https://creativecommons.org/licenses/by-sa/4.0/",
+    attribution: "Contributeurs de Wikimedia Commons",
+    sourceVersion: "Catégories alphabétiques · import du 2026-08-01",
+    accessedAt: "2026-08-01",
+    transformations:
+      "Extraction d’au plus 200 titres par catégorie alphabétique, suppression des précisions géographiques, normalisation Unicode et dédoublonnage.",
+    derivedDataLicense: "CC-BY-SA-4.0",
+  },
   "ru-rues-routes-romanise": {
     source: "Wikimedia Commons · Streets in Moscow by name",
     sourceUrl:
