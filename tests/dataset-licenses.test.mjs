@@ -16,7 +16,7 @@ const dictionaries = (
 ).flat();
 
 test("chaque corpus actif possède une provenance et une licence", () => {
-  assert.equal(dictionaries.length, 23);
+  assert.equal(dictionaries.length, 24);
   for (const dictionary of dictionaries) {
     for (const key of [
       "source",
@@ -46,6 +46,14 @@ test("les dérivés CC BY-SA restent identifiés CC BY-SA", () => {
   )) {
     assert.equal(dictionary.derivedDataLicense, "CC-BY-SA-4.0");
   }
+});
+
+test("le corpus de voies anglaises est présent et normalisé", () => {
+  const streets = dictionaries.find(({ id }) => id === "en-rues-routes");
+  assert.ok(streets);
+  assert.equal(streets.words.length, 3337);
+  assert.equal(new Set(streets.words).size, streets.words.length);
+  assert.ok(streets.words.every((word) => /^\\p{L}+$/u.test(word)));
 });
 
 test("le corpus anglais reste inchangé", () => {
