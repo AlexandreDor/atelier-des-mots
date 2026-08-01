@@ -5,6 +5,8 @@ import Link from "next/link";
 import {
   INITIAL_DICTIONARIES,
   isFirstNameDictionary,
+  isNatureDictionary,
+  isPlaceDictionary,
   type Dictionary,
 } from "../dictionaries";
 import {
@@ -55,6 +57,12 @@ function createConfig(
 }
 
 function dictionaryCategory(dictionary: Dictionary) {
+  if (isNatureDictionary(dictionary)) {
+    return "Nature et sciences";
+  }
+  if (isPlaceDictionary(dictionary)) {
+    return "Lieux";
+  }
   return isFirstNameDictionary(dictionary) ? "Prénoms" : "Mots";
 }
 
@@ -226,7 +234,9 @@ export default function AnalysisPage() {
     );
   }
 
-  function selectCategory(category: "Prénoms" | "Mots") {
+  function selectCategory(
+    category: "Prénoms" | "Mots" | "Lieux" | "Nature et sciences",
+  ) {
     setSelectedIds(
       dictionaries
         .filter((dictionary) => dictionaryCategory(dictionary) === category)
@@ -243,7 +253,9 @@ export default function AnalysisPage() {
         </Link>
         <nav aria-label="Navigation principale">
           <Link href="/">Générateur</Link>
+          <Link href="/lieux">Lieux</Link>
           <Link className="is-active" href="/analyse">Analyse</Link>
+          <Link href="/licences">Licences</Link>
         </nav>
         <span className="lab-badge" aria-label="Mode laboratoire">LAB</span>
       </header>
@@ -312,6 +324,15 @@ export default function AnalysisPage() {
                 </button>
                 <button type="button" onClick={() => selectCategory("Prénoms")}>
                   Tous les prénoms
+                </button>
+                <button type="button" onClick={() => selectCategory("Lieux")}>
+                  Tous les lieux
+                </button>
+                <button
+                  type="button"
+                  onClick={() => selectCategory("Nature et sciences")}
+                >
+                  Toute la nature
                 </button>
                 <button type="button" onClick={() => setSelectedIds([])}>
                   Aucun
@@ -589,6 +610,8 @@ export default function AnalysisPage() {
         <span>Analyses calculées localement dans votre navigateur.</span>
         <span>
           <Link href="/">Retour au générateur</Link>
+          {" · "}
+          <Link href="/licences">Licences et sources</Link>
         </span>
       </footer>
     </div>

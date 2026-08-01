@@ -1,4 +1,7 @@
-import dictionaryData from "./data/dictionaries.json";
+import primaryDictionaryData from "./data/dictionaries-primary.json";
+import secondaryDictionaryData from "./data/dictionaries-secondary.json";
+import natureDictionaryData from "./data/nature-dictionaries.json";
+import placeDictionaryData from "./data/place-dictionaries.json";
 import { normalizeWord } from "./generator";
 
 export type Dictionary = {
@@ -20,7 +23,12 @@ export const REMOVED_DICTIONARY_IDS = new Set([
   "botanique",
   "matiere",
 ]);
-export const INITIAL_DICTIONARIES = dictionaryData as Dictionary[];
+export const INITIAL_DICTIONARIES = [
+  ...(primaryDictionaryData as Dictionary[]),
+  ...(secondaryDictionaryData as Dictionary[]),
+  ...(placeDictionaryData as Dictionary[]),
+  ...(natureDictionaryData as Dictionary[]),
+];
 export const INITIAL_DICTIONARY_IDS = new Set(
   INITIAL_DICTIONARIES.map((dictionary) => dictionary.id),
 );
@@ -30,6 +38,17 @@ export function isFirstNameDictionary(dictionary: Dictionary) {
   return /(?:^|-)(?:prenoms?|prénoms?)(?:-|$)/i.test(
     `${dictionary.id}-${dictionary.name}`,
   );
+}
+
+export function isPlaceDictionary(dictionary: Dictionary) {
+  return (
+    dictionary.id.startsWith("fr-lieux-") ||
+    dictionary.id === "ru-rues-routes-romanise"
+  );
+}
+
+export function isNatureDictionary(dictionary: Dictionary) {
+  return dictionary.id.startsWith("fr-nature-");
 }
 
 export function normalizeDictionaryWords(words: unknown) {

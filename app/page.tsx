@@ -7,6 +7,8 @@ import {
   dictionaryFingerprint,
   INITIAL_DICTIONARIES,
   isFirstNameDictionary,
+  isNatureDictionary,
+  isPlaceDictionary,
   type Dictionary,
 } from "./dictionaries";
 import { downloadTextFile, escapeCsvCell } from "./download";
@@ -25,7 +27,7 @@ import {
 import { useDictionaries } from "./use-dictionaries";
 
 type SortMode = "random" | "alphabetical" | "probability";
-type DictionaryCategory = "first-names" | "words";
+type DictionaryCategory = "first-names" | "words" | "places" | "nature";
 
 const FAVORITES_KEY = "atelier-des-mots:favorites:v1";
 const PRESETS_KEY = "atelier-des-mots:presets:v1";
@@ -398,8 +400,21 @@ export default function Home() {
         id: "words",
         label: "Mots",
         dictionaries: sorted.filter(
-          (dictionary) => !isFirstNameDictionary(dictionary),
+          (dictionary) =>
+            !isFirstNameDictionary(dictionary) &&
+            !isPlaceDictionary(dictionary) &&
+            !isNatureDictionary(dictionary),
         ),
+      },
+      {
+        id: "places",
+        label: "Lieux",
+        dictionaries: sorted.filter(isPlaceDictionary),
+      },
+      {
+        id: "nature",
+        label: "Nature et sciences",
+        dictionaries: sorted.filter(isNatureDictionary),
       },
     ];
   }, [dictionaries]);
@@ -866,7 +881,9 @@ export default function Home() {
         </a>
         <nav aria-label="Navigation principale">
           <Link className="is-active" href="/">Générateur</Link>
+          <Link href="/lieux">Lieux</Link>
           <Link href="/analyse">Analyse</Link>
+          <Link href="/licences">Licences</Link>
         </nav>
         <span className="lab-badge" aria-label="Mode laboratoire">LAB</span>
       </header>
@@ -926,7 +943,9 @@ export default function Home() {
                 {selectedByCategory["first-names"]} prénom
                 {selectedByCategory["first-names"] > 1 ? "s" : ""} ·{" "}
                 {selectedByCategory.words} liste
-                {selectedByCategory.words > 1 ? "s" : ""} de mots
+                {selectedByCategory.words > 1 ? "s" : ""} de mots ·{" "}
+                {selectedByCategory.places} lieu
+                {selectedByCategory.places > 1 ? "x" : ""}
               </p>
               <div className="source-tools">
                 <span>Influence normalisée</span>
@@ -1759,7 +1778,7 @@ export default function Home() {
           appareil.
         </span>
         <span>
-          Sources ouvertes :{" "}
+          Sources et licences :{" "}
           <a
             href="https://github.com/oprogramador/most-common-words-by-language"
             target="_blank"
@@ -1791,6 +1810,16 @@ export default function Home() {
           >
             voies russes romanisées
           </a>
+          {" · "}
+          <a
+            href="https://fr.wikipedia.org/wiki/Liste_de_min%C3%A9raux"
+            target="_blank"
+            rel="noreferrer"
+          >
+            minéraux
+          </a>
+          {" · "}
+          <Link href="/licences">licences et attributions</Link>
         </span>
       </footer>
     </div>
