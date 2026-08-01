@@ -90,6 +90,19 @@ const corpusGroups: CorpusGroup[] = [
       "Faker contributors, Marak Squires et auteurs amont cités dans la licence.",
   },
   {
+    title: "Voies de Londres",
+    ids: ["en-rues-routes"],
+    source: "Wikimedia Commons · Streets in London by name",
+    sourceUrl:
+      "https://commons.wikimedia.org/wiki/Category:Streets_in_London_by_name",
+    license: "CC BY-SA 4.0",
+    licenseUrl: "https://creativecommons.org/licenses/by-sa/4.0/",
+    version: "Catégories alphabétiques · import du 1er août 2026",
+    transformations:
+      "Sélection de titres, retrait des précisions géographiques, normalisation et dédoublonnage.",
+    attribution: "Contributeurs et historiques des pages de Wikimedia Commons.",
+  },
+  {
     title: "Voies de Moscou romanisées",
     ids: ["ru-rues-routes-romanise"],
     source: "Wikimedia Commons · Streets in Moscow by name",
@@ -168,7 +181,7 @@ export default function LicensesPage() {
             </p>
           </div>
           <dl className="licenses-summary" aria-label="Résumé de l’inventaire">
-            <div><dt>Corpus actifs</dt><dd>23</dd></div>
+            <div><dt>Corpus actifs</dt><dd>24</dd></div>
             <div><dt>Corpus suspendus</dt><dd>3</dd></div>
             <div><dt>Dernière vérification</dt><dd>01.08.2026</dd></div>
           </dl>
