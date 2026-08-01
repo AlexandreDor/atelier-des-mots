@@ -1,8 +1,17 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import dictionaryData from "./data/dictionaries.json";
+import { DictionaryManager } from "./dictionary-manager";
+import {
+  dictionaryFingerprint,
+  INITIAL_DICTIONARIES,
+  isFirstNameDictionary,
+  isNatureDictionary,
+  isPlaceDictionary,
+  type Dictionary,
+} from "./dictionaries";
+import { downloadTextFile, escapeCsvCell } from "./download";
 import {
   Algorithm,
   GeneratorConfig,
@@ -15,17 +24,11 @@ import {
   wordProbabilityBreakdown,
   wordProbabilityScore,
 } from "./generator";
+import { useDictionaries } from "./use-dictionaries";
 
 type SortMode = "random" | "alphabetical" | "probability";
-type DictionaryCategory = "first-names" | "words";
+type DictionaryCategory = "first-names" | "words" | "places" | "nature";
 
-type Dictionary = {
-  id: string;
-  name: string;
-  words: string[];
-};
-
-const STORAGE_KEY = "atelier-des-mots:dictionaries:v1";
 const FAVORITES_KEY = "atelier-des-mots:favorites:v1";
 const PRESETS_KEY = "atelier-des-mots:presets:v1";
 
@@ -42,8 +45,6 @@ type GenerationResponse = {
   words: string[];
 };
 
-const REMOVED_DICTIONARY_IDS = new Set(["francais", "botanique", "matiere"]);
-const INITIAL_DICTIONARIES = dictionaryData as Dictionary[];
 const DICTIONARY_LANGUAGE_ORDER = [
   "fr",
   "en",
@@ -159,8 +160,9 @@ function configurationSignature(
       .filter((dictionary) => weights[dictionary.id] > 0)
       .map((dictionary) => [
         dictionary.id,
+        dictionary.name,
         weights[dictionary.id],
-        dictionary.words.length,
+        dictionaryFingerprint(dictionary),
       ]),
   });
 }
@@ -176,8 +178,7 @@ function modelSignature(
       source.id,
       source.name,
       source.weight,
-      source.words.length,
-      source.words.at(-1) ?? "",
+      dictionaryFingerprint(source),
     ]),
   });
 }
@@ -206,24 +207,24 @@ function dictionarySortRank(dictionary: Dictionary) {
   return rank === -1 ? DICTIONARY_LANGUAGE_ORDER.length : rank;
 }
 
-function isFirstNameDictionary(dictionary: Dictionary) {
-  return /(?:^|-)(?:prenoms?|prénoms?)(?:-|$)/i.test(
-    `${dictionary.id}-${dictionary.name}`,
-  );
-}
-
 const DEFAULT_DICTIONARY =
   INITIAL_DICTIONARIES.find(isFirstNameDictionary) ?? INITIAL_DICTIONARIES[0];
 
 export default function Home() {
+  const {
+    dictionaries,
+    customDictionaries,
+    setCustomDictionaries,
+    isLoaded: dictionariesLoaded,
+    storageError,
+  } = useDictionaries();
   const initialWeights = { [DEFAULT_DICTIONARY.id]: 1 };
   const initialPreparedModel = () =>
     prepareModel(
       selectedSources(INITIAL_DICTIONARIES, initialWeights),
       INITIAL_CONFIG,
     );
-  const [dictionaries, setDictionaries] = useState(INITIAL_DICTIONARIES);
-  const [selectedId, setSelectedId] = useState(DEFAULT_DICTIONARY.id);
+  const [managedDictionaryId, setManagedDictionaryId] = useState("");
   const [dictionaryCategory, setDictionaryCategory] =
     useState<DictionaryCategory>("first-names");
   const [dictionaryWeights, setDictionaryWeights] =
@@ -256,8 +257,6 @@ export default function Home() {
   );
   const [results, setResults] = useState(INITIAL_RESULTS);
   const [isManaging, setIsManaging] = useState(false);
-  const [newDictionaryName, setNewDictionaryName] = useState("");
-  const [wordsToAdd, setWordsToAdd] = useState("");
   const [message, setMessage] = useState("");
   const [copiedWord, setCopiedWord] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -281,42 +280,6 @@ export default function Home() {
   const workerRef = useRef<Worker | null>(null);
   const requestIdRef = useRef(0);
   const revealFrameRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    let storedDictionaries: Dictionary[] | null = null;
-    try {
-      const stored = window.localStorage.getItem(STORAGE_KEY);
-      if (!stored) return;
-      const parsed = JSON.parse(stored) as Dictionary[];
-      if (Array.isArray(parsed) && parsed.length) {
-        const retained = parsed.filter(
-          (dictionary) => !REMOVED_DICTIONARY_IDS.has(dictionary.id),
-        );
-        const storedIds = new Set(retained.map((dictionary) => dictionary.id));
-        storedDictionaries = [
-          ...INITIAL_DICTIONARIES.filter(
-            (dictionary) => !storedIds.has(dictionary.id),
-          ),
-          ...retained,
-        ];
-      }
-    } catch {
-      // Keep the curated defaults if local data cannot be read.
-    }
-    if (!storedDictionaries) return;
-    const timeout = window.setTimeout(() => {
-      setDictionaries(storedDictionaries);
-      setSelectedId(
-        storedDictionaries.find(isFirstNameDictionary)?.id ??
-          storedDictionaries[0].id,
-      );
-    }, 0);
-    return () => window.clearTimeout(timeout);
-  }, []);
-
-  useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(dictionaries));
-  }, [dictionaries]);
 
   useEffect(() => {
     let storedFavorites: string[] = [];
@@ -368,9 +331,6 @@ export default function Home() {
     };
   }, []);
 
-  const selectedDictionary =
-    dictionaries.find((dictionary) => dictionary.id === selectedId) ??
-    dictionaries[0];
   const draftConfig: GeneratorConfig = {
     algorithm,
     order: algorithm === "phonetic" ? Math.min(order, 3) : order,
@@ -440,8 +400,21 @@ export default function Home() {
         id: "words",
         label: "Mots",
         dictionaries: sorted.filter(
-          (dictionary) => !isFirstNameDictionary(dictionary),
+          (dictionary) =>
+            !isFirstNameDictionary(dictionary) &&
+            !isPlaceDictionary(dictionary) &&
+            !isNatureDictionary(dictionary),
         ),
+      },
+      {
+        id: "places",
+        label: "Lieux",
+        dictionaries: sorted.filter(isPlaceDictionary),
+      },
+      {
+        id: "nature",
+        label: "Nature et sciences",
+        dictionaries: sorted.filter(isNatureDictionary),
       },
     ];
   }, [dictionaries]);
@@ -623,7 +596,6 @@ export default function Home() {
       delete next[id];
       return next;
     });
-    if (checked) setSelectedId(id);
     setMessage("");
   }
 
@@ -682,7 +654,6 @@ export default function Home() {
       ]),
     );
     setDictionaryWeights(nextWeights);
-    setSelectedId(chosen[0].id);
     setMessage(
       `${sourceCount} dictionnaire${sourceCount > 1 ? "s" : ""} tiré${sourceCount > 1 ? "s" : ""} au hasard.`,
     );
@@ -801,8 +772,6 @@ export default function Home() {
         ? availableWeights
         : { [dictionaries[0].id]: 1 },
     );
-    const firstId = Object.keys(availableWeights)[0];
-    if (firstId) setSelectedId(firstId);
     setMessage(
       `Préréglage « ${preset.name} » chargé. Appliquez pour générer.`,
     );
@@ -817,60 +786,55 @@ export default function Home() {
     setMessage("Préréglage supprimé.");
   }
 
-  function addDictionary(event: FormEvent) {
-    event.preventDefault();
-    const name = newDictionaryName.trim();
-    if (!name) return;
-    if (
-      dictionaries.some(
-        (dictionary) =>
-          dictionary.name.toLocaleLowerCase("fr-FR") ===
-          name.toLocaleLowerCase("fr-FR"),
-      )
-    ) {
-      setMessage("Ce dictionnaire existe déjà.");
-      return;
+  function selectManagedDictionary(id: string) {
+    setManagedDictionaryId(id);
+    if (id) {
+      setDictionaryWeights((current) => ({
+        ...current,
+        [id]: current[id] || 1,
+      }));
     }
-
-    const dictionary = {
-      id: `dictionnaire-${Date.now()}`,
-      name,
-      words: [],
-    };
-    setDictionaries((current) => [...current, dictionary]);
-    setSelectedId(dictionary.id);
-    setDictionaryWeights((current) => ({ ...current, [dictionary.id]: 1 }));
-    setNewDictionaryName("");
-    setWordsToAdd("");
-    setMessage(`« ${name} » est prêt à recevoir ses premiers mots.`);
   }
 
-  function addWords(event: FormEvent) {
-    event.preventDefault();
-    const candidates = wordsToAdd
-      .split(/[\s,;]+/)
-      .map(normalizeWord)
-      .filter((word) => word.length >= 2);
-    const unique = Array.from(new Set(candidates));
-    if (!unique.length || !selectedDictionary) {
-      setMessage("Saisissez au moins un mot de deux lettres.");
+  function deleteCustomDictionary(id: string) {
+    const deleted = customDictionaries.find((dictionary) => dictionary.id === id);
+    setCustomDictionaries((current) =>
+      current.filter((dictionary) => dictionary.id !== id),
+    );
+    setDictionaryWeights((current) => {
+      const next = { ...current };
+      delete next[id];
+      return Object.keys(next).length ? next : { [DEFAULT_DICTIONARY.id]: 1 };
+    });
+    setManagedDictionaryId("");
+    setMessage(`« ${deleted?.name ?? "Dictionnaire"} » supprimé.`);
+  }
+
+  function exportResults(format: "txt" | "csv") {
+    if (!displayedResults.length) return;
+    if (format === "txt") {
+      downloadTextFile(
+        "atelier-des-mots-resultats.txt",
+        `${displayedResults.join("\n")}\n`,
+        "text/plain",
+      );
       return;
     }
-
-    const existing = new Set(selectedDictionary.words.map(normalizeWord));
-    const additions = unique.filter((word) => !existing.has(word));
-    setDictionaries((current) =>
-      current.map((dictionary) =>
-        dictionary.id === selectedDictionary.id
-          ? { ...dictionary, words: [...dictionary.words, ...additions] }
-          : dictionary,
-      ),
-    );
-    setWordsToAdd("");
-    setMessage(
-      additions.length
-        ? `${additions.length} mot${additions.length > 1 ? "s" : ""} ajouté${additions.length > 1 ? "s" : ""}.`
-        : "Ces mots sont déjà présents dans le dictionnaire.",
+    const rows = displayedResults.map((word) => {
+      const scores = resultScores.get(word);
+      return [
+        word,
+        (scores?.overall ?? 0).toFixed(1),
+        (scores?.letters ?? 0).toFixed(1),
+        (scores?.end ?? 0).toFixed(1),
+      ]
+        .map(escapeCsvCell)
+        .join(";");
+    });
+    downloadTextFile(
+      "atelier-des-mots-resultats.csv",
+      `\uFEFFmot;score;lettres;fin\n${rows.join("\n")}\n`,
+      "text/csv",
     );
   }
 
@@ -917,7 +881,9 @@ export default function Home() {
         </a>
         <nav aria-label="Navigation principale">
           <Link className="is-active" href="/">Générateur</Link>
+          <Link href="/lieux">Lieux</Link>
           <Link href="/analyse">Analyse</Link>
+          <Link href="/licences">Licences</Link>
         </nav>
         <span className="lab-badge" aria-label="Mode laboratoire">LAB</span>
       </header>
@@ -977,7 +943,9 @@ export default function Home() {
                 {selectedByCategory["first-names"]} prénom
                 {selectedByCategory["first-names"] > 1 ? "s" : ""} ·{" "}
                 {selectedByCategory.words} liste
-                {selectedByCategory.words > 1 ? "s" : ""} de mots
+                {selectedByCategory.words > 1 ? "s" : ""} de mots ·{" "}
+                {selectedByCategory.places} lieu
+                {selectedByCategory.places > 1 ? "x" : ""}
               </p>
               <div className="source-tools">
                 <span>Influence normalisée</span>
@@ -1115,57 +1083,20 @@ export default function Home() {
                 {isManaging ? "Fermer la gestion" : "Gérer les dictionnaires"}
               </button>
 
-              {isManaging && (
-                <div className="dictionary-manager">
-                  <form onSubmit={addWords}>
-                    <label htmlFor="managed-dictionary">
-                      Dictionnaire à modifier
-                    </label>
-                    <select
-                      id="managed-dictionary"
-                      className="manager-select"
-                      value={selectedId}
-                      onChange={(event) => setSelectedId(event.target.value)}
-                    >
-                      {dictionaryGroups.map((group) => (
-                        <optgroup label={group.label} key={group.id}>
-                          {group.dictionaries.map((dictionary) => (
-                            <option value={dictionary.id} key={dictionary.id}>
-                              {dictionary.name}
-                            </option>
-                          ))}
-                        </optgroup>
-                      ))}
-                    </select>
-                    <label htmlFor="new-words">Ajouter des mots</label>
-                    <textarea
-                      id="new-words"
-                      value={wordsToAdd}
-                      onChange={(event) => setWordsToAdd(event.target.value)}
-                      placeholder="luciole, velours, cascade…"
-                      rows={3}
-                    />
-                    <button type="submit" className="secondary-button">
-                      Ajouter au dictionnaire
-                    </button>
-                  </form>
-                  <form onSubmit={addDictionary}>
-                    <label htmlFor="dictionary-name">Nouveau dictionnaire</label>
-                    <div className="inline-form">
-                      <input
-                        id="dictionary-name"
-                        value={newDictionaryName}
-                        onChange={(event) =>
-                          setNewDictionaryName(event.target.value)
-                        }
-                        placeholder="Nom du dictionnaire"
-                      />
-                      <button type="submit" aria-label="Créer le dictionnaire">
-                        Créer
-                      </button>
-                    </div>
-                  </form>
-                </div>
+              {isManaging && dictionariesLoaded && (
+                <DictionaryManager
+                  key={managedDictionaryId}
+                  dictionaries={dictionaries}
+                  customDictionaries={customDictionaries}
+                  selectedId={managedDictionaryId}
+                  onSelect={selectManagedDictionary}
+                  onChange={setCustomDictionaries}
+                  onDelete={deleteCustomDictionary}
+                  onMessage={setMessage}
+                />
+              )}
+              {isManaging && !dictionariesLoaded && (
+                <p className="field-help">Chargement des dictionnaires locaux…</p>
               )}
               </div>
             </details>
@@ -1601,7 +1532,11 @@ export default function Home() {
                   <span aria-hidden="true">→</span>
                 </button>
               </div>
-              {message && <p className="status-message" role="status">{message}</p>}
+              {(message || storageError) && (
+                <p className="status-message" role="status">
+                  {storageError || message}
+                </p>
+              )}
               </div>
             </details>
           </aside>
@@ -1623,6 +1558,12 @@ export default function Home() {
                 </span>
               </div>
               <div className="result-actions">
+                <button type="button" onClick={() => exportResults("txt")}>
+                  TXT
+                </button>
+                <button type="button" onClick={() => exportResults("csv")}>
+                  CSV
+                </button>
                 <button
                   className={`favorites-toggle ${showFavorites ? "active" : ""}`}
                   type="button"
@@ -1837,7 +1778,7 @@ export default function Home() {
           appareil.
         </span>
         <span>
-          Sources ouvertes :{" "}
+          Sources et licences :{" "}
           <a
             href="https://github.com/oprogramador/most-common-words-by-language"
             target="_blank"
@@ -1869,6 +1810,16 @@ export default function Home() {
           >
             voies russes romanisées
           </a>
+          {" · "}
+          <a
+            href="https://fr.wikipedia.org/wiki/Liste_de_min%C3%A9raux"
+            target="_blank"
+            rel="noreferrer"
+          >
+            minéraux
+          </a>
+          {" · "}
+          <Link href="/licences">licences et attributions</Link>
         </span>
       </footer>
     </div>

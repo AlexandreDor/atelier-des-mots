@@ -1,10 +1,57 @@
-🌐 [Ouvrir Atelier des mots](https://atelier-des-mots.alexandre-dorier.chatgpt.site)
+# Atelier des mots
 
-# vinext-starter
+[Ouvrir Atelier des mots](https://atelier-des-mots.alexandre-dorier.chatgpt.site)
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+Générateur et laboratoire d’analyse pour inventer des mots, comparer des
+dictionnaires, créer des noms de lieux d’inspiration française et explorer le
+vocabulaire de la nature.
+
+## Nature et sciences
+
+Le quatrième thème du générateur contient actuellement un dictionnaire français
+de minéraux extrait de la
+[liste Wikipédia](https://fr.wikipedia.org/wiki/Liste_de_min%C3%A9raux)
+(CC BY-SA 4.0).
+
+Les anciens corpus d’animaux, de plantes et de champignons dérivés de TAXREF
+sont suspendus : les conditions affichées par la source contredisent sa licence
+CC BY 4.0 sur la redistribution en ligne. Le détail est consigné dans
+[`DATA_LICENSES.md`](DATA_LICENSES.md). Le script
+`scripts/build-nature-dictionaries.mjs` reconstruit uniquement le corpus de
+minéraux à partir des pages alphabétiques de la liste.
+
+## Noms de lieux
+
+La route `/lieux` propose trois générateurs spécialisés :
+
+- villes et villages ;
+- rivières et fleuves ;
+- montagnes.
+
+Les cinq corpus intégrés réunissent 8 389 toponymes. Les communes proviennent
+du [découpage administratif Etalab](https://github.com/datagouv/decoupage-administratif)
+(Code officiel géographique de l’INSEE, Licence Ouverte), les cours d’eau et
+reliefs de [GeoNames](https://www.geonames.org/) (CC BY 4.0), et la distinction
+des fleuves de la
+[liste Wikipédia](https://fr.wikipedia.org/wiki/Liste_de_fleuves_de_France)
+(CC BY-SA).
+
+Le script `scripts/build-place-dictionaries.mjs` permet de reconstruire les
+cinq corpus à partir des trois exports sources.
+
+## Licences
+
+- Le code est distribué sous [licence MIT](LICENSE).
+- Les sources, versions connues, dates d’accès, transformations et licences de
+  chaque corpus sont décrites dans [`DATA_LICENSES.md`](DATA_LICENSES.md).
+- Les avis MIT des outils et données amont sont conservés dans
+  [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+- Une synthèse lisible est également disponible sur la route `/licences` du
+  site.
+
+Le corpus anglais est volontairement conservé sans modification pour un usage
+personnel et non commercial ; sa licence amont spécifique reste signalée dans
+le manifeste.
 
 ## Prerequisites
 
