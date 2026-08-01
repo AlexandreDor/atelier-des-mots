@@ -39,6 +39,10 @@ des fleuves de la
 Le script `scripts/build-place-dictionaries.mjs` permet de reconstruire les
 cinq corpus à partir des trois exports sources.
 
+Le générateur principal propose également un corpus de 3 337 noms de voies
+londoniennes extrait de Wikimedia Commons (CC BY-SA 4.0), dans le thème
+« Lieux ».
+
 ## Licences
 
 - Le code est distribué sous [licence MIT](LICENSE).
@@ -49,9 +53,9 @@ cinq corpus à partir des trois exports sources.
 - Une synthèse lisible est également disponible sur la route `/licences` du
   site.
 
-Le corpus anglais est volontairement conservé sans modification pour un usage
-personnel et non commercial ; sa licence amont spécifique reste signalée dans
-le manifeste.
+Le corpus anglais de mots courants (`en-mots`) est volontairement conservé sans
+modification pour un usage personnel et non commercial ; sa licence amont
+spécifique reste signalée dans le manifeste.
 
 ## Prerequisites
 
