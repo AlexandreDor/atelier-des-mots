@@ -1,4 +1,5 @@
 import { readFile, writeFile } from "node:fs/promises";
+import { DATASET_METADATA } from "./dataset-metadata.mjs";
 
 const [communesPath, geonamesPath, fleuvesHtmlPath] = process.argv.slice(2);
 
@@ -204,7 +205,10 @@ const placeDictionaries = [
     name: "France · montagnes",
     words: mountainNames,
   },
-];
+].map((dictionary) => ({
+  ...dictionary,
+  ...DATASET_METADATA[dictionary.id],
+}));
 
 for (const dictionary of placeDictionaries) {
   const expected =

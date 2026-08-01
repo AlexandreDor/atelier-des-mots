@@ -8,23 +8,17 @@ vocabulaire de la nature.
 
 ## Nature et sciences
 
-Le quatrième thème du générateur réunit quatre dictionnaires français :
-
-- animaux ;
-- plantes ;
-- champignons ;
-- minéraux.
-
-Les noms d’espèces proviennent de
-[TAXREF](https://www.gbif.org/fr/dataset/0e61f8fe-7d25-4f81-ada7-d970bbb2c6d6),
-le référentiel taxonomique national diffusé par le MNHN (Licence Ouverte). Les
-noms de minéraux sont extraits de la
+Le quatrième thème du générateur contient actuellement un dictionnaire français
+de minéraux extrait de la
 [liste Wikipédia](https://fr.wikipedia.org/wiki/Liste_de_min%C3%A9raux)
-(CC BY-SA).
+(CC BY-SA 4.0).
 
-Le script `scripts/build-nature-dictionaries.mjs` reconstruit les quatre corpus
-à partir de l’export Darwin Core de TAXREF et des pages alphabétiques de la
-liste des minéraux.
+Les anciens corpus d’animaux, de plantes et de champignons dérivés de TAXREF
+sont suspendus : les conditions affichées par la source contredisent sa licence
+CC BY 4.0 sur la redistribution en ligne. Le détail est consigné dans
+[`DATA_LICENSES.md`](DATA_LICENSES.md). Le script
+`scripts/build-nature-dictionaries.mjs` reconstruit uniquement le corpus de
+minéraux à partir des pages alphabétiques de la liste.
 
 ## Noms de lieux
 
@@ -44,6 +38,20 @@ des fleuves de la
 
 Le script `scripts/build-place-dictionaries.mjs` permet de reconstruire les
 cinq corpus à partir des trois exports sources.
+
+## Licences
+
+- Le code est distribué sous [licence MIT](LICENSE).
+- Les sources, versions connues, dates d’accès, transformations et licences de
+  chaque corpus sont décrites dans [`DATA_LICENSES.md`](DATA_LICENSES.md).
+- Les avis MIT des outils et données amont sont conservés dans
+  [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+- Une synthèse lisible est également disponible sur la route `/licences` du
+  site.
+
+Le corpus anglais est volontairement conservé sans modification pour un usage
+personnel et non commercial ; sa licence amont spécifique reste signalée dans
+le manifeste.
 
 ## Prerequisites
 

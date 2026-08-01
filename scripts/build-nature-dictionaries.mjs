@@ -1,21 +1,14 @@
-import { createReadStream } from "node:fs";
 import { readdir, readFile, writeFile } from "node:fs/promises";
-import { createInterface } from "node:readline";
+import { DATASET_METADATA } from "./dataset-metadata.mjs";
 
-const [taxonPath, mineralPagesDirectory] = process.argv.slice(2);
+const [mineralPagesDirectory] = process.argv.slice(2);
 
-if (!taxonPath || !mineralPagesDirectory) {
+if (!mineralPagesDirectory) {
   console.error(
-    "Usage: node scripts/build-nature-dictionaries.mjs <taxon.txt> <mineral-pages-directory>",
+    "Usage: node scripts/build-nature-dictionaries.mjs <mineral-pages-directory>",
   );
   process.exit(1);
 }
-
-const TARGET_COUNTS = {
-  animals: 4000,
-  plants: 4000,
-  fungi: 1400,
-};
 
 function cleanName(value) {
   return value
@@ -50,80 +43,6 @@ function uniqueNames(values) {
   return names;
 }
 
-function stableRank(value) {
-  let hash = 2166136261;
-  for (const character of value) {
-    hash ^= character.codePointAt(0) ?? 0;
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
-}
-
-function deterministicSample(values, count) {
-  if (values.length < count) {
-    throw new Error(`${values.length} noms disponibles, ${count} attendus`);
-  }
-  return [...values]
-    .sort(
-      (first, second) =>
-        stableRank(first) - stableRank(second) ||
-        first.localeCompare(second, "fr", { sensitivity: "base" }),
-    )
-    .slice(0, count)
-    .sort((first, second) =>
-      first.localeCompare(second, "fr", { sensitivity: "base" }),
-    );
-}
-
-function splitVernacularNames(value) {
-  return value
-    .split(/\s*[,;]\s*/u)
-    .map(cleanName)
-    .filter(Boolean);
-}
-
-async function extractTaxrefNames(path) {
-  const byKingdom = {
-    Animalia: [],
-    Plantae: [],
-    Fungi: [],
-  };
-  const lines = createInterface({
-    input: createReadStream(path, "utf8"),
-    crlfDelay: Number.POSITIVE_INFINITY,
-  });
-
-  let firstLine = true;
-  for await (const line of lines) {
-    if (firstLine) {
-      firstLine = false;
-      continue;
-    }
-    const fields = line.split("\t");
-    const id = fields[0];
-    const acceptedNameUsageId = fields[3];
-    const kingdom = fields[8];
-    const rank = fields[22];
-    const vernacularName = fields[24];
-    if (
-      !vernacularName ||
-      id !== acceptedNameUsageId ||
-      !["species", "subspecies", "variety"].includes(rank) ||
-      !(kingdom in byKingdom)
-    ) {
-      continue;
-    }
-    byKingdom[kingdom].push(...splitVernacularNames(vernacularName));
-  }
-
-  return Object.fromEntries(
-    Object.entries(byKingdom).map(([kingdom, names]) => [
-      kingdom,
-      uniqueNames(names),
-    ]),
-  );
-}
-
 function mineralNameFromLine(line) {
   if (!/^\*\s+/u.test(line)) return null;
   const link = line.match(/^\*\s+\[\[([^|\]]+)(?:\|([^\]]+))?\]\]/u);
@@ -151,53 +70,25 @@ async function extractMineralNames(directory) {
   );
 }
 
-const [taxref, minerals] = await Promise.all([
-  extractTaxrefNames(taxonPath),
-  extractMineralNames(mineralPagesDirectory),
-]);
-
-const natureDictionaries = [
-  {
-    id: "fr-nature-animaux",
-    name: "Français · animaux",
-    words: deterministicSample(taxref.Animalia, TARGET_COUNTS.animals),
-  },
-  {
-    id: "fr-nature-plantes",
-    name: "Français · plantes",
-    words: deterministicSample(taxref.Plantae, TARGET_COUNTS.plants),
-  },
-  {
-    id: "fr-nature-champignons",
-    name: "Français · champignons",
-    words: deterministicSample(taxref.Fungi, TARGET_COUNTS.fungi),
-  },
-  {
-    id: "fr-nature-mineraux",
-    name: "Français · minéraux",
-    words: minerals,
-  },
-];
-
+const minerals = await extractMineralNames(mineralPagesDirectory);
 if (minerals.length < 500) {
   throw new Error(
     `Le corpus minéralogique est incomplet : ${minerals.length} noms seulement`,
   );
 }
 
+const natureDictionaries = [
+  {
+    id: "fr-nature-mineraux",
+    name: "Français · minéraux",
+    words: minerals,
+    ...DATASET_METADATA["fr-nature-mineraux"],
+  },
+];
+
 await writeFile(
   new URL("../app/data/nature-dictionaries.json", import.meta.url),
   `${JSON.stringify(natureDictionaries)}\n`,
 );
 
-console.log(
-  natureDictionaries
-    .map((dictionary) => `${dictionary.id}: ${dictionary.words.length}`)
-    .concat(
-      `total: ${natureDictionaries.reduce(
-        (sum, dictionary) => sum + dictionary.words.length,
-        0,
-      )}`,
-    )
-    .join("\n"),
-);
+console.log(`fr-nature-mineraux: ${minerals.length}`);

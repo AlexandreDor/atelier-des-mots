@@ -2,7 +2,8 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import dictionaryData from "./data/dictionaries.json";
+import primaryDictionaryData from "./data/dictionaries-primary.json";
+import secondaryDictionaryData from "./data/dictionaries-secondary.json";
 import natureDictionaryData from "./data/nature-dictionaries.json";
 import placeDictionaryData from "./data/place-dictionaries.json";
 import {
@@ -46,7 +47,8 @@ type GenerationResponse = {
 
 const REMOVED_DICTIONARY_IDS = new Set(["francais", "botanique", "matiere"]);
 const INITIAL_DICTIONARIES = [
-  ...(dictionaryData as Dictionary[]),
+  ...(primaryDictionaryData as Dictionary[]),
+  ...(secondaryDictionaryData as Dictionary[]),
   ...(placeDictionaryData as Dictionary[]),
   ...(natureDictionaryData as Dictionary[]),
 ];
@@ -949,6 +951,7 @@ export default function Home() {
           <Link className="is-active" href="/">Générateur</Link>
           <Link href="/lieux">Lieux</Link>
           <Link href="/analyse">Analyse</Link>
+          <Link href="/licences">Licences</Link>
         </nav>
         <span className="lab-badge" aria-label="Mode laboratoire">LAB</span>
       </header>
@@ -1870,7 +1873,7 @@ export default function Home() {
           appareil.
         </span>
         <span>
-          Sources ouvertes :{" "}
+          Sources et licences :{" "}
           <a
             href="https://github.com/oprogramador/most-common-words-by-language"
             target="_blank"
@@ -1904,20 +1907,14 @@ export default function Home() {
           </a>
           {" · "}
           <a
-            href="https://www.gbif.org/fr/dataset/0e61f8fe-7d25-4f81-ada7-d970bbb2c6d6"
-            target="_blank"
-            rel="noreferrer"
-          >
-            TAXREF
-          </a>
-          {" · "}
-          <a
             href="https://fr.wikipedia.org/wiki/Liste_de_min%C3%A9raux"
             target="_blank"
             rel="noreferrer"
           >
             minéraux
           </a>
+          {" · "}
+          <Link href="/licences">licences et attributions</Link>
         </span>
       </footer>
     </div>

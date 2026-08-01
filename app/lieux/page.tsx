@@ -402,6 +402,7 @@ export default function PlacesPage() {
           <Link href="/">Générateur</Link>
           <Link className="is-active" href="/lieux">Lieux</Link>
           <Link href="/analyse">Analyse</Link>
+          <Link href="/licences">Licences</Link>
         </nav>
         <span className="lab-badge" aria-label="Corpus français">FR</span>
       </header>
@@ -763,6 +764,8 @@ export default function PlacesPage() {
           <a href="https://fr.wikipedia.org/wiki/Liste_de_fleuves_de_France">
             Wikipédia
           </a>
+          {" · "}
+          <Link href="/licences">Licences détaillées</Link>
         </span>
       </footer>
     </div>
