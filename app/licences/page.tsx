@@ -194,6 +194,10 @@ const corpusGroups: CorpusGroup[] = [
   },
 ];
 
+const ACTIVE_CORPUS_COUNT = new Set(
+  corpusGroups.flatMap(({ ids }) => ids),
+).size;
+
 export default function LicensesPage() {
   return (
     <div className="site-shell licenses-shell">
@@ -222,7 +226,7 @@ export default function LicensesPage() {
             </p>
           </div>
           <dl className="licenses-summary" aria-label="Résumé de l’inventaire">
-            <div><dt>Corpus actifs</dt><dd>25</dd></div>
+            <div><dt>Corpus actifs</dt><dd>{ACTIVE_CORPUS_COUNT}</dd></div>
             <div><dt>Corpus suspendus</dt><dd>3</dd></div>
             <div><dt>Dernière vérification</dt><dd>09.08.2026</dd></div>
           </dl>
@@ -301,7 +305,7 @@ export default function LicensesPage() {
       </main>
 
       <footer>
-        <span>Inventaire révisé le 1er août 2026.</span>
+        <span>Inventaire révisé le 9 août 2026.</span>
         <span>
           <a href="https://github.com/AlexandreDor/atelier-des-mots/blob/main/DATA_LICENSES.md">
             Manifeste complet

@@ -80,11 +80,11 @@ function logAudit(id, stats, output) {
   );
 }
 
-function requireTarget(id, names, target) {
+function requireMinimum(id, names, target) {
   if (names.length < target) {
     throw new Error(`${id} : ${names.length} noms, ${target} attendus`);
   }
-  return names.slice(0, target);
+  return names;
 }
 
 const [communesText, geonamesText, fleuvesHtml, existingText] =
@@ -114,11 +114,11 @@ const cityClean = collectNormalizedNames(
     .map((commune) => commune.nom),
   "fr",
 );
-const cityNames = requireTarget(
+const cityNames = requireMinimum(
   "fr-lieux-villes",
   cityClean.names,
   TARGET_COUNTS.cities,
-);
+).slice(0, TARGET_COUNTS.cities);
 
 const villageClean = collectNormalizedNames(
   communes
@@ -127,7 +127,7 @@ const villageClean = collectNormalizedNames(
   "fr",
 );
 const villageNames = deterministicSample(
-  requireTarget(
+  requireMinimum(
     "fr-lieux-villages",
     villageClean.names,
     TARGET_COUNTS.villages,
@@ -145,16 +145,16 @@ const riverClean = collectNormalizedNames(
   "fr",
 );
 const riverNames = deterministicSample(
-  requireTarget("fr-lieux-rivieres", riverClean.names, TARGET_COUNTS.rivers),
+  requireMinimum("fr-lieux-rivieres", riverClean.names, TARGET_COUNTS.rivers),
   TARGET_COUNTS.rivers,
 );
 
 const fleuveClean = collectNormalizedNames(extractFleuves(fleuvesHtml), "fr");
-const fleuveNames = requireTarget(
+const fleuveNames = requireMinimum(
   "fr-lieux-fleuves",
   fleuveClean.names,
   TARGET_COUNTS.fleuves,
-);
+).slice(0, TARGET_COUNTS.fleuves);
 
 const forestCandidates = geonames
   .filter(
@@ -163,7 +163,7 @@ const forestCandidates = geonames
   .map((place) => place.name);
 const forestClean = collectCleanNames(forestCandidates, "forest");
 const forestNames = deterministicSample(
-  requireTarget("fr-lieux-forets", forestClean.names, TARGET_COUNTS.forests),
+  requireMinimum("fr-lieux-forets", forestClean.names, TARGET_COUNTS.forests),
   TARGET_COUNTS.forests,
 );
 
@@ -178,7 +178,7 @@ const mountainCandidates = geonames
   .map((place) => place.name);
 const mountainClean = collectCleanNames(mountainCandidates, "mountain");
 const mountainNames = deterministicSample(
-  requireTarget(
+  requireMinimum(
     "fr-lieux-montagnes",
     mountainClean.names,
     TARGET_COUNTS.mountains,
@@ -194,7 +194,7 @@ const beachCandidates = geonames
   .map((place) => place.name);
 const beachClean = collectCleanNames(beachCandidates, "beach");
 const beachNames = deterministicSample(
-  requireTarget("fr-lieux-plages", beachClean.names, TARGET_COUNTS.beaches),
+  requireMinimum("fr-lieux-plages", beachClean.names, TARGET_COUNTS.beaches),
   TARGET_COUNTS.beaches,
 );
 
