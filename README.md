@@ -28,16 +28,23 @@ La route `/lieux` propose trois générateurs spécialisés :
 - rivières et fleuves ;
 - montagnes.
 
-Les cinq corpus intégrés réunissent 8 389 toponymes. Les communes proviennent
+Les six corpus intégrés réunissent 13 389 toponymes français et russes
+romanisés. Les communes françaises proviennent
 du [découpage administratif Etalab](https://github.com/datagouv/decoupage-administratif)
 (Code officiel géographique de l’INSEE, Licence Ouverte), les cours d’eau et
-reliefs de [GeoNames](https://www.geonames.org/) (CC BY 4.0), et la distinction
+reliefs ainsi que les localités russes de
+[GeoNames](https://www.geonames.org/) (CC BY 4.0), et la distinction
 des fleuves de la
 [liste Wikipédia](https://fr.wikipedia.org/wiki/Liste_de_fleuves_de_France)
 (CC BY-SA).
 
 Le script `scripts/build-place-dictionaries.mjs` permet de reconstruire les
-cinq corpus à partir des trois exports sources.
+cinq corpus français à partir des trois exports sources. Le corpus russe peut
+être reconstruit avec :
+
+```bash
+node scripts/build-russian-place-dictionary.mjs RU.txt
+```
 
 Le générateur principal propose également un corpus de 3 337 noms de voies
 londoniennes extrait de Wikimedia Commons (CC BY-SA 4.0), dans le thème

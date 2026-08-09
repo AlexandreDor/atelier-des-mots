@@ -16,7 +16,7 @@ const dictionaries = (
 ).flat();
 
 test("chaque corpus actif possède une provenance et une licence", () => {
-  assert.equal(dictionaries.length, 24);
+  assert.equal(dictionaries.length, 25);
   for (const dictionary of dictionaries) {
     for (const key of [
       "source",
@@ -31,6 +31,19 @@ test("chaque corpus actif possède une provenance et une licence", () => {
       assert.ok(dictionary[key], `${dictionary.id}: ${key} manquant`);
     }
   }
+});
+
+test("les localités russes sont romanisées et suffisamment variées", () => {
+  const russianPlaces = dictionaries.find(
+    ({ id }) => id === "ru-lieux-localites-romanise",
+  );
+  assert.ok(russianPlaces);
+  assert.equal(russianPlaces.words.length, 5000);
+  assert.equal(new Set(russianPlaces.words).size, russianPlaces.words.length);
+  russianPlaces.words.forEach((name) => {
+    assert.match(name, /^[A-Za-z][A-Za-z .'-]*$/u);
+    assert.doesNotMatch(name, /[\u0400-\u04ff]/u);
+  });
 });
 
 test("les corpus TAXREF ambigus ne sont plus distribués", () => {
