@@ -53,7 +53,7 @@ test("le corpus de voies anglaises est présent et normalisé", () => {
   assert.ok(streets);
   assert.equal(streets.words.length, 3337);
   assert.equal(new Set(streets.words).size, streets.words.length);
-  assert.ok(streets.words.every((word) => /^\\p{L}+$/u.test(word)));
+  assert.ok(streets.words.every((word) => /^\p{L}+$/u.test(word)));
 });
 
 test("le corpus anglais reste inchangé", () => {
