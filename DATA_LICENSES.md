@@ -1,6 +1,6 @@
 # Sources et licences des corpus
 
-Révision de cet inventaire : **1er août 2026**.
+Révision de cet inventaire : **9 août 2026**.
 
 La licence MIT du fichier [`LICENSE`](LICENSE) couvre le code du projet. Elle
 ne remplace pas les licences propres aux corpus de `app/data/`. Les corpus
@@ -22,6 +22,7 @@ obligation ne s’étend pas au code indépendant de l’application.
 | `ru-rues-routes-romanise` | Titres de la catégorie [Streets in Moscow by name](https://commons.wikimedia.org/wiki/Category:Streets_in_Moscow_by_name), état non consigné, import du 28 juillet 2026 | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) | Extraction des titres, romanisation, normalisation et dédoublonnage. Attribution : contributeurs de Wikimedia Commons et historiques des pages liées. |
 | `fr-lieux-villes`, `fr-lieux-villages` | [Découpage administratif Etalab / INSEE](https://github.com/datagouv/decoupage-administratif), export non consigné, récupéré le 29 juillet 2026 | [Licence Ouverte 2.0](https://www.data.gouv.fr/pages/legal/licences/etalab-2.0) | Filtrage par territoire et population, tri ou échantillonnage déterministe. Attribution : Etalab / INSEE, données modifiées. |
 | `fr-lieux-rivieres`, `fr-lieux-montagnes` | [GeoNames `FR.txt`](https://download.geonames.org/export/dump/FR.zip), export quotidien récupéré le 29 juillet 2026 | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | Filtrage des types géographiques puis échantillonnage déterministe. Attribution : GeoNames, données modifiées. |
+| `ru-lieux-localites-romanise` | [GeoNames `RU.txt`](https://download.geonames.org/export/dump/RU.zip), export quotidien récupéré le 9 août 2026 | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | Filtrage des localités habitées, sélection des 5 000 plus peuplées, utilisation du nom ASCII romanisé et dédoublonnage. Attribution : GeoNames, données modifiées. |
 | `fr-lieux-fleuves` | [Liste de fleuves de France](https://fr.wikipedia.org/wiki/Liste_de_fleuves_de_France), révision non consignée, récupérée le 29 juillet 2026 | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) | Extraction du tableau, nettoyage des annotations et sélection de 200 noms. Attribution : contributeurs et historique de l’article. |
 | `fr-nature-mineraux` | [Liste de minéraux](https://fr.wikipedia.org/wiki/Liste_de_min%C3%A9raux), révisions non consignées, récupérées le 29 juillet 2026 | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) | Agrégation des pages alphabétiques, nettoyage et dédoublonnage. Attribution : contributeurs et historiques des articles. |
 

@@ -169,6 +169,18 @@ export const DATASET_METADATA = {
   "fr-lieux-montagnes": geonamesMetadata(
     "Filtrage des reliefs français, échantillon déterministe de 689 noms.",
   ),
+  "ru-lieux-localites-romanise": {
+    source: "GeoNames · export RU.txt",
+    sourceUrl: "https://download.geonames.org/export/dump/RU.zip",
+    license: "CC-BY-4.0",
+    licenseUrl: "https://creativecommons.org/licenses/by/4.0/",
+    attribution: "GeoNames",
+    sourceVersion: "Export quotidien récupéré le 2026-08-09",
+    accessedAt: "2026-08-09",
+    licenseReviewedAt: "2026-08-09",
+    transformations:
+      "Filtrage des localités habitées, sélection des 5 000 plus peuplées, utilisation du nom ASCII romanisé, normalisation et dédoublonnage.",
+  },
   "fr-lieux-fleuves": wikipediaMetadata(
     "Liste de fleuves de France",
     "https://fr.wikipedia.org/wiki/Liste_de_fleuves_de_France",
@@ -235,5 +247,5 @@ function wikipediaMetadata(title, sourceUrl, transformations) {
 }
 
 for (const metadata of Object.values(DATASET_METADATA)) {
-  metadata.licenseReviewedAt = LICENSE_REVIEWED_AT;
+  metadata.licenseReviewedAt ??= LICENSE_REVIEWED_AT;
 }

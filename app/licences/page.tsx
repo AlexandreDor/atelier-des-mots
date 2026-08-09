@@ -127,6 +127,18 @@ const corpusGroups: CorpusGroup[] = [
     attribution: "GeoNames · données modifiées.",
   },
   {
+    title: "Villes, bourgs et villages de Russie romanisés",
+    ids: ["ru-lieux-localites-romanise"],
+    source: "GeoNames · export RU.txt",
+    sourceUrl: "https://download.geonames.org/export/dump/RU.zip",
+    license: "CC BY 4.0",
+    licenseUrl: "https://creativecommons.org/licenses/by/4.0/",
+    version: "Export quotidien récupéré le 9 août 2026",
+    transformations:
+      "Filtrage des localités habitées, sélection des 5 000 plus peuplées, utilisation du nom ASCII romanisé et dédoublonnage.",
+    attribution: "GeoNames · données modifiées.",
+  },
+  {
     title: "Fleuves et minéraux",
     ids: ["fr-lieux-fleuves", "fr-nature-mineraux"],
     source: "Wikipédia en français",
@@ -168,9 +180,9 @@ export default function LicensesPage() {
             </p>
           </div>
           <dl className="licenses-summary" aria-label="Résumé de l’inventaire">
-            <div><dt>Corpus actifs</dt><dd>23</dd></div>
+            <div><dt>Corpus actifs</dt><dd>24</dd></div>
             <div><dt>Corpus suspendus</dt><dd>3</dd></div>
-            <div><dt>Dernière vérification</dt><dd>01.08.2026</dd></div>
+            <div><dt>Dernière vérification</dt><dd>09.08.2026</dd></div>
           </dl>
         </section>
 

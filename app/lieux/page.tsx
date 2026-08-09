@@ -11,7 +11,7 @@ import {
   prepareModel,
 } from "../generator";
 
-type PlaceLanguage = "fr";
+type PlaceLanguage = "fr" | "ru-latn";
 type PlaceType = "settlement" | "water" | "mountain";
 type PlaceStructure = "simple" | "compound" | "territorial";
 
@@ -33,6 +33,11 @@ const LANGUAGE_OPTIONS: {
     label: "Français",
     detail: "Noms en français · lieux situés en France",
   },
+  {
+    id: "ru-latn",
+    label: "Russe romanisé",
+    detail: "Noms russes transcrits en alphabet latin",
+  },
 ];
 
 const TYPE_OPTIONS: {
@@ -45,7 +50,7 @@ const TYPE_OPTIONS: {
     id: "settlement",
     index: "01",
     label: "Ville ou village",
-    description: "Communes, bourgs et hameaux",
+    description: "Villes, bourgs, villages et hameaux",
   },
   {
     id: "water",
@@ -83,7 +88,7 @@ const STRUCTURE_OPTIONS: {
   },
 ];
 
-const INITIAL_RESULTS = [
+const FRENCH_INITIAL_RESULTS = [
   "Valebrune",
   "Saint-Orvel",
   "Montaulne",
@@ -93,6 +98,18 @@ const INITIAL_RESULTS = [
   "Aubecourt",
   "Viremont",
   "Séranne",
+];
+
+const RUSSIAN_INITIAL_RESULTS = [
+  "Novoradsk",
+  "Belogorsk",
+  "Zarevsk",
+  "Malinovo",
+  "Krasnaya",
+  "Turovka",
+  "Vyshegrad",
+  "Sosnovsk",
+  "Yarovoye",
 ];
 
 function createSeed() {
@@ -144,7 +161,10 @@ function dictionary(id: string, weight = 1): WeightedSource {
   return { ...source, weight };
 }
 
-function sourcesFor(type: PlaceType) {
+function sourcesFor(language: PlaceLanguage, type: PlaceType) {
+  if (language === "ru-latn") {
+    return [dictionary("ru-lieux-localites-romanise")];
+  }
   if (type === "settlement") {
     return [
       dictionary("fr-lieux-villes", 1.2),
@@ -230,6 +250,7 @@ function formatPlaceName(
 }
 
 function buildNames({
+  language,
   type,
   structure,
   algorithm,
@@ -241,6 +262,7 @@ function buildNames({
   count,
   seed,
 }: {
+  language: PlaceLanguage;
   type: PlaceType;
   structure: PlaceStructure;
   algorithm: Algorithm;
@@ -269,10 +291,10 @@ function buildNames({
       allowDictionaryWords: false,
     },
   };
-  const model = prepareModel(sourcesFor(type), config);
+  const model = prepareModel(sourcesFor(language, type), config);
   const cores = generateBatch(model, config);
   const random = seededRandom(
-    `${seed}:${type}:${structure}:${algorithm}:${order}:${temperature}:${interpolation}`,
+    `${seed}:${language}:${type}:${structure}:${algorithm}:${order}:${temperature}:${interpolation}`,
   );
   const names = new Set<string>();
 
@@ -307,19 +329,42 @@ export default function PlacesPage() {
   const [seed, setSeed] = useState("");
   const [lastSeed, setLastSeed] = useState("");
   const [seedCopied, setSeedCopied] = useState(false);
-  const [results, setResults] = useState(INITIAL_RESULTS);
+  const [results, setResults] = useState(FRENCH_INITIAL_RESULTS);
   const [copiedName, setCopiedName] = useState<string | null>(null);
   const selectedType = useMemo(
     () => TYPE_OPTIONS.find((option) => option.id === type) ?? TYPE_OPTIONS[0],
     [type],
   );
+  const availableTypeOptions = useMemo(
+    () =>
+      language === "ru-latn"
+        ? TYPE_OPTIONS.filter((option) => option.id === "settlement")
+        : TYPE_OPTIONS,
+    [language],
+  );
+  const availableStructureOptions = useMemo(
+    () =>
+      language === "ru-latn"
+        ? STRUCTURE_OPTIONS.filter((option) => option.id === "simple")
+        : STRUCTURE_OPTIONS,
+    [language],
+  );
   const corpusSize = useMemo(
     () =>
-      sourcesFor(type).reduce(
+      sourcesFor(language, type).reduce(
         (total, source) => total + source.words.length,
         0,
       ),
-    [type],
+    [language, type],
+  );
+  const languageCorpusSize = useMemo(
+    () =>
+      PLACE_DICTIONARIES.filter((item) =>
+        language === "ru-latn"
+          ? item.id === "ru-lieux-localites-romanise"
+          : item.id.startsWith("fr-lieux-"),
+      ).reduce((total, source) => total + source.words.length, 0),
+    [language],
   );
   const selectedStructure =
     STRUCTURE_OPTIONS.find((option) => option.id === structure) ??
@@ -330,6 +375,7 @@ export default function PlacesPage() {
     setLastSeed(resolvedSeed);
     setResults(
       buildNames({
+        language,
         type,
         structure,
         algorithm,
@@ -375,8 +421,8 @@ export default function PlacesPage() {
       random,
     );
     const nextMinimum = pick([3, 4, 5, 6, 7], random);
-    setType(pick(TYPE_OPTIONS, random).id);
-    setStructure(pick(STRUCTURE_OPTIONS, random).id);
+    setType(pick(availableTypeOptions, random).id);
+    setStructure(pick(availableStructureOptions, random).id);
     setAlgorithm(nextAlgorithm);
     setOrder(
       nextAlgorithm === "syllabic"
@@ -404,17 +450,26 @@ export default function PlacesPage() {
           <Link href="/analyse">Analyse</Link>
           <Link href="/licences">Licences</Link>
         </nav>
-        <span className="lab-badge" aria-label="Corpus français">FR</span>
+        <span
+          className="lab-badge"
+          aria-label={language === "fr" ? "Corpus français" : "Corpus russe romanisé"}
+        >
+          {language === "fr" ? "FR" : "RU"}
+        </span>
       </header>
 
       <main>
         <section className="places-hero" aria-labelledby="places-title">
           <div>
-            <p className="eyebrow">Toponymie française</p>
+            <p className="eyebrow">
+              {language === "fr" ? "Toponymie française" : "Toponymie russe romanisée"}
+            </p>
             <h1 id="places-title">Dessinez une carte, un nom à la fois.</h1>
             <p>
-              Créez des noms de villes, de cours d’eau et de montagnes à partir
-              de 8&nbsp;389 lieux de France.
+              {language === "fr"
+                ? "Créez des noms de villes, de cours d’eau et de montagnes"
+                : "Créez des noms de villages, de bourgs et de villes russes"}{" "}
+              à partir de {languageCorpusSize.toLocaleString("fr-FR")} lieux.
             </p>
           </div>
           <button className="places-randomize" type="button" onClick={randomize}>
@@ -434,9 +489,17 @@ export default function PlacesPage() {
                 <span>Langue</span>
                 <select
                   value={language}
-                  onChange={(event) =>
-                    setLanguage(event.target.value as PlaceLanguage)
-                  }
+                  onChange={(event) => {
+                    const nextLanguage = event.target.value as PlaceLanguage;
+                    setLanguage(nextLanguage);
+                    setType("settlement");
+                    setStructure("simple");
+                    setResults(
+                      nextLanguage === "fr"
+                        ? FRENCH_INITIAL_RESULTS
+                        : RUSSIAN_INITIAL_RESULTS,
+                    );
+                  }}
                 >
                   {LANGUAGE_OPTIONS.map((option) => (
                     <option value={option.id} key={option.id}>
@@ -453,7 +516,7 @@ export default function PlacesPage() {
               </label>
               <span className="places-label">Nature du lieu</span>
               <div className="place-type-grid" role="radiogroup" aria-label="Type de lieu">
-                {TYPE_OPTIONS.map((option) => (
+                {availableTypeOptions.map((option) => (
                   <button
                     type="button"
                     role="radio"
@@ -596,7 +659,7 @@ export default function PlacesPage() {
 
               <span className="places-label">Forme du nom</span>
               <div className="places-segmented" role="group" aria-label="Forme du nom">
-                {STRUCTURE_OPTIONS.map((option) => (
+                {availableStructureOptions.map((option) => (
                   <button
                     type="button"
                     className={structure === option.id ? "is-active" : ""}

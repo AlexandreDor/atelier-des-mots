@@ -43,6 +43,7 @@ export function isFirstNameDictionary(dictionary: Dictionary) {
 export function isPlaceDictionary(dictionary: Dictionary) {
   return (
     dictionary.id.startsWith("fr-lieux-") ||
+    dictionary.id.startsWith("ru-lieux-") ||
     dictionary.id === "ru-rues-routes-romanise"
   );
 }
