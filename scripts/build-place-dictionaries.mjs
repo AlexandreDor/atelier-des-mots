@@ -1,5 +1,11 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { DATASET_METADATA } from "./dataset-metadata.mjs";
+import {
+  collectCleanNames,
+  collectNormalizedNames,
+  deterministicSample,
+  parseGeoNames,
+} from "./place-dictionary-utils.mjs";
 
 const [communesPath, geonamesPath, fleuvesHtmlPath] = process.argv.slice(2);
 
@@ -15,7 +21,9 @@ const TARGET_COUNTS = {
   villages: 4000,
   rivers: 1000,
   fleuves: 200,
-  mountains: 689,
+  forests: 2000,
+  mountains: 4000,
+  beaches: 200,
 };
 
 function decodeHtml(value) {
@@ -40,49 +48,6 @@ function decodeHtml(value) {
     .trim();
 }
 
-function usableName(value) {
-  return (
-    value &&
-    value.length >= 2 &&
-    value.length <= 42 &&
-    /\p{L}/u.test(value) &&
-    !/\d/.test(value)
-  );
-}
-
-function uniqueNames(values) {
-  const seen = new Set();
-  return values.filter((value) => {
-    const name = value.normalize("NFC").replace(/\s+/g, " ").trim();
-    const key = name.toLocaleLowerCase("fr-FR");
-    if (!usableName(name) || seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-function stableRank(value) {
-  let hash = 2166136261;
-  for (const character of value) {
-    hash ^= character.codePointAt(0) ?? 0;
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
-}
-
-function deterministicSample(values, count) {
-  return [...values]
-    .sort(
-      (first, second) =>
-        stableRank(first) - stableRank(second) ||
-        first.localeCompare(second, "fr", { sensitivity: "base" }),
-    )
-    .slice(0, count)
-    .sort((first, second) =>
-      first.localeCompare(second, "fr", { sensitivity: "base" }),
-    );
-}
-
 function extractFleuves(html) {
   const table = html.match(
     /<table\b[^>]*class="[^"]*\bwikitable\b[^"]*"[^>]*>([\s\S]*?)<\/table>/i,
@@ -98,35 +63,47 @@ function extractFleuves(html) {
       .trim();
     if (name !== "Fleuve") values.push(name);
   }
-  return uniqueNames(values);
+  return values;
 }
 
-function parseGeoNames(tsv) {
-  return tsv
-    .trim()
-    .split("\n")
-    .map((line) => {
-      const fields = line.split("\t");
-      return {
-        id: fields[0],
-        name: fields[1],
-        featureClass: fields[6],
-        featureCode: fields[7],
-      };
-    });
+function withMetadata(id, name, words) {
+  const metadata = DATASET_METADATA[id];
+  if (!metadata) throw new Error(`Métadonnées manquantes : ${id}`);
+  return { id, name, words, ...metadata };
 }
 
-const [communesText, geonamesText, fleuvesHtml] = await Promise.all([
-  readFile(communesPath, "utf8"),
-  readFile(geonamesPath, "utf8"),
-  readFile(fleuvesHtmlPath, "utf8"),
-]);
+function logAudit(id, stats, output) {
+  console.log(
+    `${id}: ${output.length} noms · candidats ${stats.candidates}, ` +
+      `nettoyés ${stats.transformed}, rejetés ${stats.rejected}, ` +
+      `doublons ${stats.duplicates}`,
+  );
+}
+
+function requireTarget(id, names, target) {
+  if (names.length < target) {
+    throw new Error(`${id} : ${names.length} noms, ${target} attendus`);
+  }
+  return names.slice(0, target);
+}
+
+const [communesText, geonamesText, fleuvesHtml, existingText] =
+  await Promise.all([
+    readFile(communesPath, "utf8"),
+    readFile(geonamesPath, "utf8"),
+    readFile(fleuvesHtmlPath, "utf8"),
+    readFile(
+      new URL("../app/data/place-dictionaries.json", import.meta.url),
+      "utf8",
+    ),
+  ]);
+
 const communes = JSON.parse(communesText).filter(
   (commune) => commune.type === "commune-actuelle" && commune.zone === "metro",
 );
 const geonames = parseGeoNames(geonamesText);
 
-const cityNames = uniqueNames(
+const cityClean = collectNormalizedNames(
   [...communes]
     .filter((commune) => commune.population >= 2000)
     .sort(
@@ -135,98 +112,133 @@ const cityNames = uniqueNames(
         first.nom.localeCompare(second.nom, "fr"),
     )
     .map((commune) => commune.nom),
-).slice(0, TARGET_COUNTS.cities);
+  "fr",
+);
+const cityNames = requireTarget(
+  "fr-lieux-villes",
+  cityClean.names,
+  TARGET_COUNTS.cities,
+);
 
+const villageClean = collectNormalizedNames(
+  communes
+    .filter((commune) => commune.population < 2000)
+    .map((commune) => commune.nom),
+  "fr",
+);
 const villageNames = deterministicSample(
-  uniqueNames(
-    communes
-      .filter((commune) => commune.population < 2000)
-      .map((commune) => commune.nom),
+  requireTarget(
+    "fr-lieux-villages",
+    villageClean.names,
+    TARGET_COUNTS.villages,
   ),
   TARGET_COUNTS.villages,
 );
 
+const riverClean = collectNormalizedNames(
+  geonames
+    .filter(
+      (place) =>
+        place.featureClass === "H" && place.featureCode.startsWith("STM"),
+    )
+    .map((place) => place.name),
+  "fr",
+);
 const riverNames = deterministicSample(
-  uniqueNames(
-    geonames
-      .filter(
-        (place) =>
-          place.featureClass === "H" &&
-          place.featureCode.startsWith("STM"),
-      )
-      .map((place) => place.name),
-  ),
+  requireTarget("fr-lieux-rivieres", riverClean.names, TARGET_COUNTS.rivers),
   TARGET_COUNTS.rivers,
 );
 
-const fleuveNames = extractFleuves(fleuvesHtml).slice(
-  0,
+const fleuveClean = collectNormalizedNames(extractFleuves(fleuvesHtml), "fr");
+const fleuveNames = requireTarget(
+  "fr-lieux-fleuves",
+  fleuveClean.names,
   TARGET_COUNTS.fleuves,
 );
 
+const forestCandidates = geonames
+  .filter(
+    (place) => place.featureClass === "V" && place.featureCode === "FRST",
+  )
+  .map((place) => place.name);
+const forestClean = collectCleanNames(forestCandidates, "forest");
+const forestNames = deterministicSample(
+  requireTarget("fr-lieux-forets", forestClean.names, TARGET_COUNTS.forests),
+  TARGET_COUNTS.forests,
+);
+
+const mountainCandidates = geonames
+  .filter(
+    (place) =>
+      place.featureClass === "T" &&
+      ["HLL", "HLLS", "MT", "MTS", "PK", "PKS"].includes(
+        place.featureCode,
+      ),
+  )
+  .map((place) => place.name);
+const mountainClean = collectCleanNames(mountainCandidates, "mountain");
 const mountainNames = deterministicSample(
-  uniqueNames(
-    geonames
-      .filter(
-        (place) =>
-          place.featureClass === "T" &&
-          ["HLL", "HLLS", "MT", "MTS", "PK", "PKS"].includes(
-            place.featureCode,
-          ),
-      )
-      .map((place) => place.name),
+  requireTarget(
+    "fr-lieux-montagnes",
+    mountainClean.names,
+    TARGET_COUNTS.mountains,
   ),
   TARGET_COUNTS.mountains,
 );
 
-const placeDictionaries = [
-  {
-    id: "fr-lieux-villes",
-    name: "France · villes et bourgs",
-    words: cityNames,
-  },
-  {
-    id: "fr-lieux-villages",
-    name: "France · villages",
-    words: villageNames,
-  },
-  {
-    id: "fr-lieux-rivieres",
-    name: "France · rivières",
-    words: riverNames,
-  },
-  {
-    id: "fr-lieux-fleuves",
-    name: "France · fleuves",
-    words: fleuveNames,
-  },
-  {
-    id: "fr-lieux-montagnes",
-    name: "France · montagnes",
-    words: mountainNames,
-  },
-].map((dictionary) => ({
-  ...dictionary,
-  ...DATASET_METADATA[dictionary.id],
-}));
+const beachCandidates = geonames
+  .filter(
+    (place) =>
+      place.featureClass === "T" && ["BCH", "BCHS"].includes(place.featureCode),
+  )
+  .map((place) => place.name);
+const beachClean = collectCleanNames(beachCandidates, "beach");
+const beachNames = deterministicSample(
+  requireTarget("fr-lieux-plages", beachClean.names, TARGET_COUNTS.beaches),
+  TARGET_COUNTS.beaches,
+);
 
-for (const dictionary of placeDictionaries) {
-  const expected =
-    TARGET_COUNTS[
-      {
-        "fr-lieux-villes": "cities",
-        "fr-lieux-villages": "villages",
-        "fr-lieux-rivieres": "rivers",
-        "fr-lieux-fleuves": "fleuves",
-        "fr-lieux-montagnes": "mountains",
-      }[dictionary.id]
-    ];
+const frenchDictionaries = [
+  withMetadata("fr-lieux-villes", "France · villes et bourgs", cityNames),
+  withMetadata("fr-lieux-villages", "France · villages", villageNames),
+  withMetadata("fr-lieux-rivieres", "France · rivières", riverNames),
+  withMetadata("fr-lieux-fleuves", "France · fleuves", fleuveNames),
+  withMetadata("fr-lieux-forets", "France · forêts", forestNames),
+  withMetadata("fr-lieux-montagnes", "France · montagnes", mountainNames),
+  withMetadata("fr-lieux-plages", "France · plages", beachNames),
+];
+
+const targets = new Set(frenchDictionaries.map(({ id }) => id));
+const existing = JSON.parse(existingText).filter(
+  ({ id }) => !targets.has(id),
+);
+const placeDictionaries = [...frenchDictionaries, ...existing];
+
+const expectedById = new Map([
+  ["fr-lieux-villes", TARGET_COUNTS.cities],
+  ["fr-lieux-villages", TARGET_COUNTS.villages],
+  ["fr-lieux-rivieres", TARGET_COUNTS.rivers],
+  ["fr-lieux-fleuves", TARGET_COUNTS.fleuves],
+  ["fr-lieux-forets", TARGET_COUNTS.forests],
+  ["fr-lieux-montagnes", TARGET_COUNTS.mountains],
+  ["fr-lieux-plages", TARGET_COUNTS.beaches],
+]);
+for (const dictionary of frenchDictionaries) {
+  const expected = expectedById.get(dictionary.id);
   if (dictionary.words.length !== expected) {
     throw new Error(
       `${dictionary.id}: ${dictionary.words.length} noms, ${expected} attendus`,
     );
   }
 }
+
+logAudit("fr-lieux-villes", cityClean.stats, cityNames);
+logAudit("fr-lieux-villages", villageClean.stats, villageNames);
+logAudit("fr-lieux-rivieres", riverClean.stats, riverNames);
+logAudit("fr-lieux-fleuves", fleuveClean.stats, fleuveNames);
+logAudit("fr-lieux-forets", forestClean.stats, forestNames);
+logAudit("fr-lieux-montagnes", mountainClean.stats, mountainNames);
+logAudit("fr-lieux-plages", beachClean.stats, beachNames);
 
 await writeFile(
   new URL("../app/data/place-dictionaries.json", import.meta.url),

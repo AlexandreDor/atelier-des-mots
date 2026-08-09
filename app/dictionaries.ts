@@ -42,10 +42,8 @@ export function isFirstNameDictionary(dictionary: Dictionary) {
 
 export function isPlaceDictionary(dictionary: Dictionary) {
   return (
-    dictionary.id.startsWith("fr-lieux-") ||
-    dictionary.id.startsWith("ru-lieux-") ||
-    dictionary.id === "en-rues-routes" ||
-    dictionary.id === "ru-rues-routes-romanise"
+    dictionary.id.includes("-lieux-") ||
+    dictionary.id.includes("-rues-routes")
   );
 }
 

@@ -22,6 +22,13 @@ type Dictionary = {
 };
 
 const PLACE_DICTIONARIES = placeDictionaryData as Dictionary[];
+const FRENCH_SPECIALIZED_DICTIONARY_IDS = new Set([
+  "fr-lieux-villes",
+  "fr-lieux-villages",
+  "fr-lieux-rivieres",
+  "fr-lieux-fleuves",
+  "fr-lieux-montagnes",
+]);
 
 const LANGUAGE_OPTIONS: {
   id: PlaceLanguage;
@@ -362,7 +369,7 @@ export default function PlacesPage() {
       PLACE_DICTIONARIES.filter((item) =>
         language === "ru-latn"
           ? item.id === "ru-lieux-localites-romanise"
-          : item.id.startsWith("fr-lieux-"),
+          : FRENCH_SPECIALIZED_DICTIONARY_IDS.has(item.id),
       ).reduce((total, source) => total + source.words.length, 0),
     [language],
   );

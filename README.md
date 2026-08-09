@@ -28,8 +28,8 @@ La route `/lieux` propose trois générateurs spécialisés :
 - rivières et fleuves ;
 - montagnes.
 
-Les six corpus intégrés réunissent 13 389 toponymes français et russes
-romanisés. Les communes françaises proviennent
+Les corpus intégrés réunissent désormais des toponymes français, anglais,
+hongrois, espagnols et russes romanisés. Les communes françaises proviennent
 du [découpage administratif Etalab](https://github.com/datagouv/decoupage-administratif)
 (Code officiel géographique de l’INSEE, Licence Ouverte), les cours d’eau et
 reliefs ainsi que les localités russes de
@@ -39,7 +39,64 @@ des fleuves de la
 (CC BY-SA).
 
 Le script `scripts/build-place-dictionaries.mjs` permet de reconstruire les
-cinq corpus français à partir des trois exports sources. Le corpus russe peut
+corpus français à partir des trois exports sources. Il nettoie les désignations
+génériques des forêts, montagnes et plages avant le dédoublonnage. Les corpus
+de villes anglaises, hongroises et espagnoles sont construits depuis les
+exports GeoNames. Les voies hongroises et espagnoles proviennent des extraits
+OpenStreetMap de [Geofabrik](https://download.geofabrik.de/europe.html) et
+conservent les noms officiels locaux espagnols ; les termes comme « rue »,
+« avenue », `utca` ou `calle` sont retirés avant l’échantillonnage.
+
+Les exports peuvent être téléchargés dans un répertoire de travail (ils ne sont
+pas versionnés) avec :
+
+```bash
+curl -fLO https://download.geonames.org/export/dump/GB.zip
+curl -fLO https://download.geonames.org/export/dump/HU.zip
+curl -fLO https://download.geonames.org/export/dump/ES.zip
+curl -fLO https://download.geonames.org/export/dump/FR.zip
+for archive in GB HU ES FR; do unzip -o "$archive.zip"; done
+curl -fLo hungary-latest.osm.pbf https://download.geofabrik.de/europe/hungary-latest.osm.pbf
+curl -fLo spain-latest.osm.pbf https://download.geofabrik.de/europe/spain-latest.osm.pbf
+curl -fLo canary-islands-latest.osm.pbf https://download.geofabrik.de/africa/canary-islands-latest.osm.pbf
+```
+
+Pour préparer les voies à partir des PBF Geofabrik, installer `osmium` puis
+filtrer les objets `way` portant un tag `highway` et exporter en GeoJSON Text
+Sequence. Le script conserve ensuite uniquement `motorway`, `trunk`,
+`primary`, `secondary`, `tertiary`, `unclassified`, `residential`,
+`living_street`, `service`, `road`, `pedestrian` et `track`; il ignore `ref`,
+les objets sans `name`, ainsi que les chemins piétons/cyclables et les voies
+`proposed` ou `construction`. Pour l’Espagne, agréger également l’extrait des
+[Canaries](https://download.geofabrik.de/africa/canary-islands.html).
+
+```bash
+osmium tags-filter hungary-latest.osm.pbf w/highway -o hu-highways.osm.pbf
+osmium export hu-highways.osm.pbf -f geojsonseq -o hu-highways.geojsonseq
+osmium tags-filter spain-latest.osm.pbf w/highway -o es-highways.osm.pbf
+osmium export es-highways.osm.pbf -f geojsonseq -o es-highways.geojsonseq
+osmium tags-filter canary-islands-latest.osm.pbf w/highway -o canary-highways.osm.pbf
+osmium export canary-highways.osm.pbf -f geojsonseq -o canary-highways.geojsonseq
+```
+
+La reconstruction internationale s’effectue ensuite avec :
+
+```bash
+node scripts/build-international-place-dictionaries.mjs \
+  GB.txt HU.txt ES.txt \
+  hu-highways.geojsonseq \
+  es-highways.geojsonseq \
+  canary-highways.geojsonseq
+```
+
+La reconstruction française s’effectue avec les exports administratifs et
+hydrographiques déjà préparés :
+
+```bash
+node scripts/build-place-dictionaries.mjs communes.json FR.txt fleuves.html
+```
+
+Le corpus russe peut
 être reconstruit avec :
 
 ```bash
@@ -55,6 +112,8 @@ londoniennes extrait de Wikimedia Commons (CC BY-SA 4.0), dans le thème
 - Le code est distribué sous [licence MIT](LICENSE).
 - Les sources, versions connues, dates d’accès, transformations et licences de
   chaque corpus sont décrites dans [`DATA_LICENSES.md`](DATA_LICENSES.md).
+- Les voies extraites d’OpenStreetMap restent identifiées sous ODbL 1.0 et
+  conservent l’attribution « © OpenStreetMap contributors ».
 - Les avis MIT des outils et données amont sont conservés dans
   [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 - Une synthèse lisible est également disponible sur la route `/licences` du

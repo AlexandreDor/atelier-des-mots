@@ -116,6 +116,30 @@ const corpusGroups: CorpusGroup[] = [
     attribution: "Contributeurs et historiques des pages de Wikimedia Commons.",
   },
   {
+    title: "Villes d’Angleterre, de Hongrie et d’Espagne",
+    ids: ["en-lieux-villes", "hu-lieux-villes", "es-lieux-villes"],
+    source: "GeoNames · exports GB.txt, HU.txt et ES.txt",
+    sourceUrl: "https://download.geonames.org/export/dump/",
+    license: "CC BY 4.0",
+    licenseUrl: "https://creativecommons.org/licenses/by/4.0/",
+    version: "Exports quotidiens récupérés le 9 août 2026",
+    transformations:
+      "Filtrage des lieux peuplés, sélection des corpus par population, normalisation et dédoublonnage.",
+    attribution: "GeoNames · données modifiées.",
+  },
+  {
+    title: "Voies de Hongrie et d’Espagne",
+    ids: ["hu-rues-routes", "es-rues-routes"],
+    source: "OpenStreetMap · extraits Geofabrik",
+    sourceUrl: "https://download.geofabrik.de/europe.html",
+    license: "ODbL 1.0",
+    licenseUrl: "https://opendatacommons.org/licenses/odbl/1-0/",
+    version: "Extraits récupérés le 9 août 2026",
+    transformations:
+      "Extraction des voies nommées, retrait des désignations génériques de rue et de route, conservation des noms locaux espagnols, normalisation, dédoublonnage et échantillonnage.",
+    attribution: "© OpenStreetMap contributors · Geofabrik.",
+  },
+  {
     title: "Villes, bourgs et villages de France",
     ids: ["fr-lieux-villes", "fr-lieux-villages"],
     source: "Découpage administratif · Etalab / INSEE",
@@ -128,15 +152,20 @@ const corpusGroups: CorpusGroup[] = [
     attribution: "Etalab / INSEE · données modifiées.",
   },
   {
-    title: "Rivières et montagnes de France",
-    ids: ["fr-lieux-rivieres", "fr-lieux-montagnes"],
+    title: "Rivières, forêts, montagnes et plages de France",
+    ids: [
+      "fr-lieux-rivieres",
+      "fr-lieux-forets",
+      "fr-lieux-montagnes",
+      "fr-lieux-plages",
+    ],
     source: "GeoNames · export FR.txt",
     sourceUrl: "https://download.geonames.org/export/dump/FR.zip",
     license: "CC BY 4.0",
     licenseUrl: "https://creativecommons.org/licenses/by/4.0/",
-    version: "Export quotidien récupéré le 29 juillet 2026",
+    version: "Export quotidien récupéré le 9 août 2026",
     transformations:
-      "Filtrage des types géographiques et échantillonnage déterministe.",
+      "Filtrage des types géographiques, retrait des désignations génériques, normalisation et échantillonnage déterministe.",
     attribution: "GeoNames · données modifiées.",
   },
   {
