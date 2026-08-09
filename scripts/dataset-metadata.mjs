@@ -180,7 +180,37 @@ export const DATASET_METADATA = {
     "Filtrage des entités hydrographiques françaises, échantillon déterministe de 1 000 noms.",
   ),
   "fr-lieux-montagnes": geonamesMetadata(
-    "Filtrage des reliefs français, échantillon déterministe de 689 noms.",
+    "Filtrage des reliefs français, retrait des désignations de relief, échantillon déterministe de 4 000 noms.",
+  ),
+  "fr-lieux-forets": geonamesMetadata(
+    "Filtrage des forêts françaises (V.FRST), retrait des termes de type forêt ou bois, échantillon déterministe de 2 000 noms.",
+  ),
+  "fr-lieux-plages": geonamesMetadata(
+    "Filtrage des plages françaises (T.BCH et T.BCHS), retrait du terme plage et des liaisons, échantillon déterministe de 200 noms.",
+  ),
+  "en-lieux-villes": geonamesCountryMetadata(
+    "GB",
+    "Filtrage des villes et bourgs d’Angleterre (admin1 ENG), sélection des 2 500 lieux peuplés les plus importants.",
+  ),
+  "hu-lieux-villes": geonamesCountryMetadata(
+    "HU",
+    "Filtrage des villes et bourgs peuplés de Hongrie, sélection des 1 000 lieux les plus importants.",
+  ),
+  "es-lieux-villes": geonamesCountryMetadata(
+    "ES",
+    "Filtrage des villes et bourgs peuplés d’Espagne, sélection des 2 500 lieux les plus importants.",
+  ),
+  "hu-rues-routes": osmRoadMetadata(
+    "Hongrie",
+    "https://download.geofabrik.de/europe/hungary.html",
+    "Extraction des voies nommées, retrait des désignations hongroises de type rue ou route, normalisation Unicode, dédoublonnage et échantillonnage déterministe de 5 000 noms.",
+    "Geofabrik Hungary · données OSM au 2026-08-06T20:21:21Z · récupération le 2026-08-09",
+  ),
+  "es-rues-routes": osmRoadMetadata(
+    "Espagne",
+    "https://download.geofabrik.de/europe/spain.html",
+    "Extraction des voies nommées d’Espagne et des Canaries, conservation des noms officiels locaux, retrait des désignations de type rue ou route en espagnol et langues régionales, normalisation Unicode, dédoublonnage et échantillonnage déterministe de 5 000 noms.",
+    "Geofabrik Spain · données OSM au 2026-07-26T20:21:05Z ; Canaries au 2026-07-28T04:41:36Z · récupération le 2026-08-09",
   ),
   "ru-lieux-localites-romanise": {
     source: "GeoNames · export RU.txt",
@@ -239,9 +269,36 @@ function geonamesMetadata(transformations) {
     license: "CC-BY-4.0",
     licenseUrl: "https://creativecommons.org/licenses/by/4.0/",
     attribution: "GeoNames",
-    sourceVersion: "Export quotidien récupéré le 2026-07-29",
-    accessedAt: "2026-07-29",
+    sourceVersion: "Export quotidien récupéré le 2026-08-09",
+    accessedAt: "2026-08-09",
     transformations,
+  };
+}
+
+function geonamesCountryMetadata(countryCode, transformations) {
+  return {
+    source: `GeoNames · export ${countryCode}.txt`,
+    sourceUrl: `https://download.geonames.org/export/dump/${countryCode}.zip`,
+    license: "CC-BY-4.0",
+    licenseUrl: "https://creativecommons.org/licenses/by/4.0/",
+    attribution: "GeoNames",
+    sourceVersion: `Export quotidien récupéré le 2026-08-09`,
+    accessedAt: "2026-08-09",
+    transformations,
+  };
+}
+
+function osmRoadMetadata(country, sourceUrl, transformations, sourceVersion) {
+  return {
+    source: `OpenStreetMap · export Geofabrik · ${country}`,
+    sourceUrl,
+    license: "ODbL-1.0",
+    licenseUrl: "https://opendatacommons.org/licenses/odbl/1-0/",
+    attribution: "© OpenStreetMap contributors · Geofabrik",
+    sourceVersion,
+    accessedAt: "2026-08-09",
+    transformations,
+    derivedDataLicense: "ODbL-1.0",
   };
 }
 

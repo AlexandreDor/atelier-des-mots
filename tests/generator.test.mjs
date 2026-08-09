@@ -9,6 +9,7 @@ import {
   wordProbabilityBreakdown,
   wordProbabilityScore,
 } from "../app/generator.ts";
+import { isPlaceDictionary } from "../app/dictionaries.ts";
 
 const baseConfig = {
   algorithm: "markov",
@@ -42,6 +43,27 @@ const productiveWords = [
   "charmant",
   "chanson",
 ];
+
+test("classe les identifiants géographiques dans la catégorie Lieux", () => {
+  for (const id of [
+    "en-lieux-villes",
+    "hu-lieux-villes",
+    "es-lieux-villes",
+    "fr-lieux-forets",
+    "fr-lieux-montagnes",
+    "fr-lieux-plages",
+    "hu-rues-routes",
+    "es-rues-routes",
+    "en-rues-routes",
+    "ru-rues-routes-romanise",
+  ]) {
+    assert.equal(isPlaceDictionary({ id, name: id, words: [] }), true, id);
+  }
+  assert.equal(
+    isPlaceDictionary({ id: "fr-nature-mineraux", name: "", words: [] }),
+    false,
+  );
+});
 
 test("normalise Unicode et déduplique les mots des sources", () => {
   assert.equal(normalizeWord(" E\u0301té-42 L’ŒUF! "), "étélœuf");

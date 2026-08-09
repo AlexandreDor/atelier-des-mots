@@ -48,6 +48,7 @@ type GenerationResponse = {
 const DICTIONARY_LANGUAGE_ORDER = [
   "fr",
   "en",
+  "hu",
   "ja",
   "es",
   "it",
