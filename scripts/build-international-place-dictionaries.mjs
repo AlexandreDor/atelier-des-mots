@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { DATASET_METADATA } from "./dataset-metadata.mjs";
+import { sourceSnapshot, snapshotProvenance } from "./source-snapshots.mjs";
 import {
   POPULATED_PLACE_CODES,
   collectCleanNames,
@@ -35,10 +36,18 @@ const TARGET_COUNTS = {
   spainRoads: 5000,
 };
 
-function withMetadata(id, name, words) {
+const snapshots = {
+  GB: snapshotProvenance(await sourceSnapshot([gbPath])),
+  HU: snapshotProvenance(await sourceSnapshot([huPath])),
+  ES: snapshotProvenance(await sourceSnapshot([esPath])),
+  roadsHU: snapshotProvenance(await sourceSnapshot([huRoadsPath])),
+  roadsES: snapshotProvenance(await sourceSnapshot([esRoadsPath, esCanaryRoadsPath])),
+};
+
+function withMetadata(id, name, words, provenance) {
   const metadata = DATASET_METADATA[id];
   if (!metadata) throw new Error(`Métadonnées manquantes : ${id}`);
-  return { id, name, words, ...metadata };
+  return { id, name, words, ...metadata, ...provenance };
 }
 
 function cityNames(tsv, countryCode, target, admin1Code = null, locale = "en") {
@@ -145,26 +154,31 @@ const internationalDictionaries = [
     "en-lieux-villes",
     "Angleterre · villes et bourgs",
     englandCities.names,
+    snapshots.GB,
   ),
   withMetadata(
     "hu-lieux-villes",
     "Hongrie · villes et bourgs",
     hungaryCities.names,
+    snapshots.HU,
   ),
   withMetadata(
     "es-lieux-villes",
     "Espagne · villes et bourgs",
     spainCities.names,
+    snapshots.ES,
   ),
   withMetadata(
     "hu-rues-routes",
     "Hongrie · noms de rues et routes",
     hungaryRoads.names,
+    snapshots.roadsHU,
   ),
   withMetadata(
     "es-rues-routes",
     "Espagne · noms de rues et routes",
     spainRoads.names,
+    snapshots.roadsES,
   ),
 ];
 

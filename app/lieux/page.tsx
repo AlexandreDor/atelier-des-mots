@@ -1,19 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import placeDictionaryData from "../data/place-dictionaries.json";
 import {
   Algorithm,
   GeneratorConfig,
   WeightedSource,
-  generateBatch,
-  prepareModel,
 } from "../generator";
 
 type PlaceLanguage = "fr" | "ru-latn";
 type PlaceType = "settlement" | "water" | "mountain";
 type PlaceStructure = "simple" | "compound" | "territorial";
+type PlaceGenerationResponse = { id: number; cores: string[] };
 
 type Dictionary = {
   id: string;
@@ -95,29 +94,21 @@ const STRUCTURE_OPTIONS: {
   },
 ];
 
-const FRENCH_INITIAL_RESULTS = [
-  "Valebrune",
-  "Saint-Orvel",
-  "Montaulne",
-  "Clairive",
-  "Bellecombe",
-  "Rochevay",
-  "Aubecourt",
-  "Viremont",
-  "Séranne",
-];
+function createPlacesWorker(
+  onMessage: (event: MessageEvent<PlaceGenerationResponse>) => void,
+  onError: () => void,
+) {
+  const worker = new Worker(new URL("../places.worker.ts", import.meta.url), {
+    type: "module",
+  });
+  worker.onmessage = onMessage;
+  worker.onerror = () => onError();
+  return worker;
+}
 
-const RUSSIAN_INITIAL_RESULTS = [
-  "Novoradsk",
-  "Belogorsk",
-  "Zarevsk",
-  "Malinovo",
-  "Krasnaya",
-  "Turovka",
-  "Vyshegrad",
-  "Sosnovsk",
-  "Yarovoye",
-];
+function touchPlaceSourceKey(keys: string[], key: string) {
+  return [...keys.filter((candidate) => candidate !== key), key].slice(-8);
+}
 
 function createSeed() {
   if (typeof crypto !== "undefined" && crypto.getRandomValues) {
@@ -256,7 +247,8 @@ function formatPlaceName(
   return `${first}-${second}`;
 }
 
-function buildNames({
+function formatPlaceNames({
+  cores,
   language,
   type,
   structure,
@@ -264,42 +256,20 @@ function buildNames({
   order,
   temperature,
   interpolation,
-  minLength,
-  maxLength,
   count,
   seed,
 }: {
   language: PlaceLanguage;
   type: PlaceType;
   structure: PlaceStructure;
+  cores: string[];
   algorithm: Algorithm;
   order: number;
   temperature: number;
   interpolation: number;
-  minLength: number;
-  maxLength: number;
   count: number;
   seed: string;
 }) {
-  const config: GeneratorConfig = {
-    algorithm,
-    order,
-    temperature,
-    interpolation,
-    minLength,
-    maxLength,
-    count: Math.max(36, Math.min(1200, count * 4)),
-    seed,
-    constraints: {
-      startsWith: "",
-      endsWith: "",
-      includes: "",
-      excludes: "",
-      allowDictionaryWords: false,
-    },
-  };
-  const model = prepareModel(sourcesFor(language, type), config);
-  const cores = generateBatch(model, config);
   const random = seededRandom(
     `${seed}:${language}:${type}:${structure}:${algorithm}:${order}:${temperature}:${interpolation}`,
   );
@@ -336,7 +306,19 @@ export default function PlacesPage() {
   const [seed, setSeed] = useState("");
   const [lastSeed, setLastSeed] = useState("");
   const [seedCopied, setSeedCopied] = useState(false);
-  const [results, setResults] = useState(FRENCH_INITIAL_RESULTS);
+  const [results, setResults] = useState<string[]>([]);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [hasGenerated, setHasGenerated] = useState(false);
+  const [generationError, setGenerationError] = useState("");
+  const workerRef = useRef<Worker | null>(null);
+  const requestIdRef = useRef(0);
+  const settingsRevisionRef = useRef(0);
+  const pendingSettingsRevisionRef = useRef(0);
+  const workerSourceKeysRef = useRef<string[]>([]);
+  const pendingSourceKeyRef = useRef("");
+  const pendingFormatRef = useRef<
+    Omit<Parameters<typeof formatPlaceNames>[0], "cores"> | null
+  >(null);
   const [copiedName, setCopiedName] = useState<string | null>(null);
   const selectedType = useMemo(
     () => TYPE_OPTIONS.find((option) => option.id === type) ?? TYPE_OPTIONS[0],
@@ -377,24 +359,125 @@ export default function PlacesPage() {
     STRUCTURE_OPTIONS.find((option) => option.id === structure) ??
     STRUCTURE_OPTIONS[0];
 
+  const handleWorkerMessage = useCallback(
+    (event: MessageEvent<PlaceGenerationResponse>) => {
+      if (event.data.id !== requestIdRef.current) return;
+      if (pendingSettingsRevisionRef.current !== settingsRevisionRef.current) {
+        setResults([]);
+        setIsGenerating(false);
+        setHasGenerated(false);
+        setGenerationError("");
+        return;
+      }
+      workerSourceKeysRef.current = touchPlaceSourceKey(
+        workerSourceKeysRef.current,
+        pendingSourceKeyRef.current,
+      );
+      const format = pendingFormatRef.current;
+      if (format) {
+        setResults(formatPlaceNames({ ...format, cores: event.data.cores }));
+      }
+      setGenerationError("");
+      setIsGenerating(false);
+      setHasGenerated(true);
+    },
+    [],
+  );
+
+  const handleWorkerError = useCallback(() => {
+    workerRef.current?.terminate();
+    workerRef.current = null;
+    workerSourceKeysRef.current = [];
+    pendingSourceKeyRef.current = "";
+    setIsGenerating(false);
+    setResults([]);
+    setHasGenerated(true);
+    setGenerationError(
+      "Le worker de génération a échoué. Rechargez la page avant de réessayer.",
+    );
+  }, []);
+
+  useEffect(() => {
+    try {
+      workerRef.current = createPlacesWorker(
+        handleWorkerMessage,
+        handleWorkerError,
+      );
+    } catch {
+      workerRef.current = null;
+    }
+    return () => {
+      workerRef.current?.terminate();
+      workerRef.current = null;
+    };
+  }, [handleWorkerError, handleWorkerMessage]);
+
   function generate() {
     const resolvedSeed = seed.trim() || createSeed();
     setLastSeed(resolvedSeed);
-    setResults(
-      buildNames({
-        language,
-        type,
-        structure,
-        algorithm,
-        order,
-        temperature,
-        interpolation,
-        minLength,
-        maxLength,
-        count,
-        seed: resolvedSeed,
-      }),
-    );
+    setGenerationError("");
+    const worker = workerRef.current;
+    if (!worker) {
+      setIsGenerating(false);
+      setHasGenerated(true);
+      setGenerationError(
+        "Le worker de génération n’est pas disponible. Rechargez la page avant de réessayer.",
+      );
+      return;
+    }
+    const config: GeneratorConfig = {
+      algorithm,
+      order,
+      temperature,
+      interpolation,
+      minLength,
+      maxLength,
+      count: Math.max(36, Math.min(1200, count * 4)),
+      seed: resolvedSeed,
+      constraints: {
+        startsWith: "",
+        endsWith: "",
+        includes: "",
+        excludes: "",
+        allowDictionaryWords: false,
+      },
+    };
+    pendingFormatRef.current = {
+      language,
+      type,
+      structure,
+      algorithm,
+      order,
+      temperature,
+      interpolation,
+      count,
+      seed: resolvedSeed,
+    };
+    pendingSettingsRevisionRef.current = settingsRevisionRef.current;
+    const sourceKey = `${language}:${type}`;
+    const modelKey = JSON.stringify([sourceKey, algorithm, order]);
+    pendingSourceKeyRef.current = sourceKey;
+    const includeSources = !workerSourceKeysRef.current.includes(sourceKey);
+    setIsGenerating(true);
+    try {
+      worker.postMessage({
+        id: ++requestIdRef.current,
+        sourceKey,
+        modelKey,
+        sources: includeSources ? sourcesFor(language, type) : undefined,
+        config,
+      });
+    } catch {
+      worker.terminate();
+      workerRef.current = null;
+      workerSourceKeysRef.current = [];
+      pendingSourceKeyRef.current = "";
+      setIsGenerating(false);
+      setHasGenerated(true);
+      setGenerationError(
+        "Les réglages n’ont pas pu être transmis au worker de génération.",
+      );
+    }
   }
 
   async function copyName(name: string) {
@@ -422,6 +505,7 @@ export default function PlacesPage() {
   }
 
   function randomize() {
+    settingsRevisionRef.current += 1;
     const random = seededRandom(createSeed());
     const nextAlgorithm = pick<Algorithm>(
       ["markov", "interpolated", "syllabic", "phonetic"],
@@ -474,8 +558,8 @@ export default function PlacesPage() {
             <h1 id="places-title">Dessinez une carte, un nom à la fois.</h1>
             <p>
               {language === "fr"
-                ? "Créez des noms de villes, de cours d’eau et de montagnes"
-                : "Créez des noms de villages, de bourgs et de villes russes"}{" "}
+                ? "Créez des noms de villes, de cours d’eau et de montagnes situés en France"
+                : "Créez des noms de localités russes romanisés à partir du corpus GeoNames"}{" "}
               à partir de {languageCorpusSize.toLocaleString("fr-FR")} lieux.
             </p>
           </div>
@@ -498,14 +582,31 @@ export default function PlacesPage() {
                   value={language}
                   onChange={(event) => {
                     const nextLanguage = event.target.value as PlaceLanguage;
+                    requestIdRef.current += 1;
+                    settingsRevisionRef.current += 1;
+                    pendingFormatRef.current = null;
+                    workerRef.current?.terminate();
+                    workerRef.current = null;
+                    workerSourceKeysRef.current = [];
+                    pendingSourceKeyRef.current = "";
+                    setIsGenerating(false);
+                    setGenerationError("");
+                    try {
+                      workerRef.current = createPlacesWorker(
+                        handleWorkerMessage,
+                        handleWorkerError,
+                      );
+                    } catch {
+                      setGenerationError(
+                        "Le worker de génération n’a pas pu être démarré dans ce navigateur.",
+                      );
+                      setHasGenerated(true);
+                    }
                     setLanguage(nextLanguage);
                     setType("settlement");
                     setStructure("simple");
-                    setResults(
-                      nextLanguage === "fr"
-                        ? FRENCH_INITIAL_RESULTS
-                        : RUSSIAN_INITIAL_RESULTS,
-                    );
+                    setResults([]);
+                    setHasGenerated(false);
                   }}
                 >
                   {LANGUAGE_OPTIONS.map((option) => (
@@ -529,7 +630,10 @@ export default function PlacesPage() {
                     role="radio"
                     aria-checked={type === option.id}
                     className={type === option.id ? "is-active" : ""}
-                    onClick={() => setType(option.id)}
+                    onClick={() => {
+                      settingsRevisionRef.current += 1;
+                      setType(option.id);
+                    }}
                     key={option.id}
                   >
                     <span>{option.index}</span>
@@ -547,7 +651,10 @@ export default function PlacesPage() {
                 <button
                   type="button"
                   className={algorithm === "markov" ? "active" : ""}
-                  onClick={() => setAlgorithm("markov")}
+                  onClick={() => {
+                    settingsRevisionRef.current += 1;
+                    setAlgorithm("markov");
+                  }}
                   aria-pressed={algorithm === "markov"}
                 >
                   Markov
@@ -555,7 +662,10 @@ export default function PlacesPage() {
                 <button
                   type="button"
                   className={algorithm === "interpolated" ? "active" : ""}
-                  onClick={() => setAlgorithm("interpolated")}
+                  onClick={() => {
+                    settingsRevisionRef.current += 1;
+                    setAlgorithm("interpolated");
+                  }}
                   aria-pressed={algorithm === "interpolated"}
                 >
                   Markov interpolé
@@ -563,7 +673,10 @@ export default function PlacesPage() {
                 <button
                   type="button"
                   className={algorithm === "syllabic" ? "active" : ""}
-                  onClick={() => setAlgorithm("syllabic")}
+                  onClick={() => {
+                    settingsRevisionRef.current += 1;
+                    setAlgorithm("syllabic");
+                  }}
                   aria-pressed={algorithm === "syllabic"}
                 >
                   Syllabique
@@ -572,6 +685,7 @@ export default function PlacesPage() {
                   type="button"
                   className={algorithm === "phonetic" ? "active" : ""}
                   onClick={() => {
+                    settingsRevisionRef.current += 1;
                     setAlgorithm("phonetic");
                     setOrder((current) => Math.min(current, 3));
                   }}
@@ -601,7 +715,10 @@ export default function PlacesPage() {
                   step="1"
                   value={order}
                   disabled={algorithm === "syllabic"}
-                  onChange={(event) => setOrder(Number(event.target.value))}
+                  onChange={(event) => {
+                    settingsRevisionRef.current += 1;
+                    setOrder(Number(event.target.value));
+                  }}
                 />
                 <p className="field-help">
                   {algorithm === "phonetic"
@@ -631,9 +748,10 @@ export default function PlacesPage() {
                     max="0.95"
                     step="0.05"
                     value={interpolation}
-                    onChange={(event) =>
+                    onChange={(event) => {
+                      settingsRevisionRef.current += 1;
                       setInterpolation(Number(event.target.value))
-                    }
+                    }}
                   />
                   <p className="field-help">
                     Haut : reproduit davantage les longs enchaînements du
@@ -655,9 +773,10 @@ export default function PlacesPage() {
                 max="1.8"
                 step="0.1"
                 value={temperature}
-                onChange={(event) =>
+                onChange={(event) => {
+                  settingsRevisionRef.current += 1;
                   setTemperature(Number(event.target.value))
-                }
+                }}
               />
               <p className="field-help">
                 Bas : favorise les enchaînements les plus fréquents du corpus.
@@ -670,7 +789,10 @@ export default function PlacesPage() {
                   <button
                     type="button"
                     className={structure === option.id ? "is-active" : ""}
-                    onClick={() => setStructure(option.id)}
+                    onClick={() => {
+                      settingsRevisionRef.current += 1;
+                      setStructure(option.id);
+                    }}
                     aria-pressed={structure === option.id}
                     key={option.id}
                   >
@@ -691,9 +813,10 @@ export default function PlacesPage() {
                     min="2"
                     max={maxLength}
                     value={minLength}
-                    onChange={(event) =>
-                      setMinLength(Math.max(2, Number(event.target.value)))
-                    }
+                    onChange={(event) => {
+                      settingsRevisionRef.current += 1;
+                      setMinLength(Math.max(2, Number(event.target.value)));
+                    }}
                   />
                 </label>
                 <label>
@@ -703,14 +826,15 @@ export default function PlacesPage() {
                     min={minLength}
                     max="20"
                     value={maxLength}
-                    onChange={(event) =>
+                    onChange={(event) => {
+                      settingsRevisionRef.current += 1;
                       setMaxLength(
                         Math.max(
                           minLength,
                           Math.min(20, Number(event.target.value)),
                         ),
-                      )
-                    }
+                      );
+                    }}
                   />
                 </label>
               </div>
@@ -725,9 +849,10 @@ export default function PlacesPage() {
                 max="300"
                 step="3"
                 value={count}
-                onChange={(event) =>
-                  setCount(normalizeGenerationCount(Number(event.target.value)))
-                }
+                onChange={(event) => {
+                  settingsRevisionRef.current += 1;
+                  setCount(normalizeGenerationCount(Number(event.target.value)));
+                }}
               />
               <div className="seed-field">
                 <label htmlFor="places-seed">Graine reproductible</label>
@@ -736,14 +861,20 @@ export default function PlacesPage() {
                     id="places-seed"
                     type="text"
                     value={seed}
-                    onChange={(event) => setSeed(event.target.value)}
+                    onChange={(event) => {
+                      settingsRevisionRef.current += 1;
+                      setSeed(event.target.value);
+                    }}
                     placeholder="Vide = nouvelle graine aléatoire"
                     spellCheck={false}
                     autoComplete="off"
                   />
                   <button
                     type="button"
-                    onClick={() => setSeed(createSeed())}
+                    onClick={() => {
+                      settingsRevisionRef.current += 1;
+                      setSeed(createSeed());
+                    }}
                     aria-label="Créer une nouvelle graine"
                   >
                     ↻
@@ -761,7 +892,10 @@ export default function PlacesPage() {
                     </span>
                     <button
                       type="button"
-                      onClick={() => setSeed(lastSeed)}
+                      onClick={() => {
+                        settingsRevisionRef.current += 1;
+                        setSeed(lastSeed);
+                      }}
                       title="Réutiliser cette graine"
                     >
                       Réutiliser
@@ -776,8 +910,8 @@ export default function PlacesPage() {
                   </div>
                 )}
               </div>
-              <button className="generate-button" type="button" onClick={generate}>
-                <span>Générer les lieux</span>
+              <button className="generate-button" type="button" onClick={generate} disabled={isGenerating}>
+                <span>{isGenerating ? "Génération…" : "Générer les lieux"}</span>
                 <span aria-hidden="true">→</span>
               </button>
             </div>
@@ -794,7 +928,17 @@ export default function PlacesPage() {
                 {lastSeed && <code title={lastSeed}>{lastSeed}</code>}
               </div>
             </div>
-            <div className="place-name-grid" aria-live="polite">
+            <p role="status" aria-live="polite" aria-atomic="true">
+              {isGenerating
+                ? "Génération des propositions en cours…"
+                : generationError ||
+                  (hasGenerated
+                    ? results.length > 0
+                      ? `${results.length} propositions générées.`
+                      : "Aucune proposition n’a pu être générée avec ces réglages."
+                    : "Réglez les options puis lancez une génération pour afficher les propositions.")}
+            </p>
+            <div className="place-name-grid">
               {results.map((name, index) => (
                 <button
                   type="button"
@@ -812,9 +956,9 @@ export default function PlacesPage() {
             <div className="places-note">
               <span aria-hidden="true">⌁</span>
               <p>
-                Les propositions sont inédites. Leur rythme est appris sur des
-                communes, villages, rivières, fleuves et reliefs situés en
-                France, puis recomposé selon vos réglages.
+                {language === "fr"
+                  ? "Les propositions sont inédites. Leur rythme est appris sur des communes, villages, rivières, fleuves et reliefs situés en France, puis recomposé selon vos réglages."
+                  : "Les propositions sont inédites. Leur rythme est appris sur des localités russes romanisées issues du corpus GeoNames, puis recomposé selon vos réglages."}
               </p>
             </div>
           </div>
@@ -822,19 +966,28 @@ export default function PlacesPage() {
       </main>
 
       <footer>
-        <span>Corpus français · génération locale dans votre navigateur.</span>
+        <span>
+          {language === "fr" ? "Corpus français" : "Corpus russe romanisé"} ·
+          génération locale dans votre navigateur.
+        </span>
         <span>
           Sources&nbsp;:{" "}
-          <a href="https://github.com/datagouv/decoupage-administratif">
-            INSEE / Etalab
-          </a>
-          {" · "}
-          <a href="https://www.geonames.org/">GeoNames</a>
-          {" · "}
-          <a href="https://fr.wikipedia.org/wiki/Liste_de_fleuves_de_France">
-            Wikipédia
-          </a>
-          {" · "}
+          {language === "fr" ? (
+            <>
+              <a href="https://github.com/datagouv/decoupage-administratif">
+                INSEE / Etalab
+              </a>
+              {" · "}
+              <a href="https://www.geonames.org/">GeoNames</a>
+              {" · "}
+              <a href="https://fr.wikipedia.org/wiki/Liste_de_fleuves_de_France">
+                Wikipédia
+              </a>
+              {" · "}
+            </>
+          ) : (
+            <a href="https://www.geonames.org/">GeoNames</a>
+          )}
           <Link href="/licences">Licences détaillées</Link>
         </span>
       </footer>

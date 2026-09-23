@@ -103,6 +103,13 @@ Le corpus russe peut
 node scripts/build-russian-place-dictionary.mjs RU.txt
 ```
 
+Les scripts de reconstruction n’attribuent plus aux fichiers `latest` la date
+fixe des corpus intégrés. Chaque corpus reconstruit consigne désormais le nom
+de chaque fichier d’entrée, son empreinte SHA-256 et l’heure à laquelle cette
+empreinte a été calculée. Cette heure décrit la capture locale de l’entrée au
+build; elle ne prétend pas être sa date de téléchargement amont. Les dates
+historiques connues des corpus déjà intégrés restent documentées séparément.
+
 Le générateur principal propose également un corpus de 3 337 noms de voies
 londoniennes extrait de Wikimedia Commons (CC BY-SA 4.0), dans le thème
 « Lieux ».
@@ -119,9 +126,11 @@ londoniennes extrait de Wikimedia Commons (CC BY-SA 4.0), dans le thème
 - Une synthèse lisible est également disponible sur la route `/licences` du
   site.
 
-Le corpus anglais de mots courants (`en-mots`) est volontairement conservé sans
-modification pour un usage personnel et non commercial ; sa licence amont
-spécifique reste signalée dans le manifeste.
+Le corpus anglais de mots courants (`en-mots`) est suspendu. Seules sa fiche de
+provenance et sa taille sont conservées dans
+`app/data/suspended-dictionaries.json`; le lexique lui-même est absent des
+fichiers de données courants et du bundle tant que ses droits de redistribution
+ne sont pas clarifiés. Le détail figure dans [`DATA_LICENSES.md`](DATA_LICENSES.md).
 
 ## Prerequisites
 

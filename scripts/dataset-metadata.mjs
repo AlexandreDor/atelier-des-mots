@@ -3,6 +3,7 @@ export const LICENSE_REVIEWED_AT = "2026-08-01";
 const imported = (date) => `Export amont non consigné · import du ${date}`;
 
 export const SUSPENDED_DATASETS = [
+  "en-mots",
   "fr-nature-animaux",
   "fr-nature-plantes",
   "fr-nature-champignons",

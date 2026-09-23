@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { KeyboardEvent } from "react";
 import Link from "next/link";
 import {
-  INITIAL_DICTIONARIES,
+  DEFAULT_ANALYSIS_DICTIONARY_IDS,
   isFirstNameDictionary,
   isNatureDictionary,
   isPlaceDictionary,
@@ -21,11 +22,7 @@ import { useDictionaries } from "../use-dictionaries";
 type AnalysisMode = "word" | "similarity";
 type SimilarityMetric = "patterns" | "vocabulary";
 
-const DEFAULT_SELECTED_IDS = INITIAL_DICTIONARIES.filter((dictionary) =>
-  dictionary.id.includes("-mots"),
-)
-  .slice(0, 6)
-  .map((dictionary) => dictionary.id);
+const DEFAULT_SELECTED_IDS = DEFAULT_ANALYSIS_DICTIONARY_IDS;
 
 function scorePercent(logProbability: number | null) {
   if (logProbability === null || !Number.isFinite(logProbability)) return 0;
@@ -75,7 +72,12 @@ function shortName(dictionary: Dictionary) {
     .replace(" (cyrillique)", " · cyr.");
 }
 
+const signatureCache = new WeakMap<string[], Map<string, number>>();
+const vocabularyCache = new WeakMap<string[], Set<string>>();
+
 function dictionarySignature(dictionary: Dictionary) {
+  const cached = signatureCache.get(dictionary.words);
+  if (cached) return cached;
   const counts = new Map<string, number>();
   dictionary.words.forEach((rawWord) => {
     const word = `^${normalizeWord(rawWord)}$`;
@@ -84,6 +86,7 @@ function dictionarySignature(dictionary: Dictionary) {
       counts.set(gram, (counts.get(gram) ?? 0) + 1);
     }
   });
+  signatureCache.set(dictionary.words, counts);
   return counts;
 }
 
@@ -106,8 +109,14 @@ function cosineSimilarity(
 }
 
 function vocabularySimilarity(first: Dictionary, second: Dictionary) {
-  const firstWords = new Set(first.words.map(normalizeWord));
-  const secondWords = new Set(second.words.map(normalizeWord));
+  const firstWords =
+    vocabularyCache.get(first.words) ??
+    new Set(first.words.map(normalizeWord));
+  const secondWords =
+    vocabularyCache.get(second.words) ??
+    new Set(second.words.map(normalizeWord));
+  vocabularyCache.set(first.words, firstWords);
+  vocabularyCache.set(second.words, secondWords);
   let intersection = 0;
   firstWords.forEach((word) => {
     if (secondWords.has(word)) intersection += 1;
@@ -127,7 +136,7 @@ function algorithmLabel(algorithm: Algorithm) {
 }
 
 export default function AnalysisPage() {
-  const { dictionaries } = useDictionaries();
+  const { dictionaries, ensureDictionariesLoaded, isLoaded } = useDictionaries();
   const [mode, setMode] = useState<AnalysisMode>("word");
   const [word, setWord] = useState("brumelle");
   const [selectedIds, setSelectedIds] =
@@ -136,13 +145,56 @@ export default function AnalysisPage() {
   const [order, setOrder] = useState(2);
   const [temperature, setTemperature] = useState(0.9);
   const [metric, setMetric] = useState<SimilarityMetric>("patterns");
+  const [dictionaryLoadFailure, setDictionaryLoadFailure] = useState<{
+    selection: string;
+    message: string;
+  } | null>(null);
+  const selectedIdsKey = selectedIds.join("\u0000");
 
-  const selectedDictionaries = useMemo(
+  useEffect(() => {
+    if (!isLoaded || !selectedIds.length) return;
+    let active = true;
+    void ensureDictionariesLoaded(selectedIds)
+      .then(() => {
+        if (active) {
+          setDictionaryLoadFailure((current) =>
+            current?.selection === selectedIdsKey ? null : current,
+          );
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setDictionaryLoadFailure({
+            selection: selectedIdsKey,
+            message: "Les corpus sélectionnés n’ont pas pu être chargés.",
+          });
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [ensureDictionariesLoaded, isLoaded, selectedIds, selectedIdsKey]);
+  const dictionaryLoadError =
+    dictionaryLoadFailure?.selection === selectedIdsKey
+      ? dictionaryLoadFailure.message
+      : "";
+
+  const selectedInventoryDictionaries = useMemo(
     () =>
       selectedIds
         .map((id) => dictionaries.find((dictionary) => dictionary.id === id))
         .filter((dictionary): dictionary is Dictionary => Boolean(dictionary)),
     [dictionaries, selectedIds],
+  );
+  const selectedDictionaries = useMemo(
+    () =>
+      selectedInventoryDictionaries.filter(
+        (dictionary) => !(dictionary.wordCount && !dictionary.words.length),
+      ),
+    [selectedInventoryDictionaries],
+  );
+  const selectedSourcesLoading = selectedInventoryDictionaries.some(
+    (dictionary) => dictionary.wordCount && !dictionary.words.length,
   );
 
   const config = useMemo(
@@ -151,6 +203,7 @@ export default function AnalysisPage() {
   );
 
   const wordResults = useMemo(() => {
+    if (mode !== "word") return [];
     if (!normalizeWord(word)) return [];
     return selectedDictionaries
       .map((dictionary) => {
@@ -168,17 +221,19 @@ export default function AnalysisPage() {
         };
       })
       .sort((first, second) => second.overall - first.overall);
-  }, [selectedDictionaries, word, config]);
+  }, [mode, selectedDictionaries, word, config]);
 
   const signatures = useMemo(
     () =>
-      new Map(
-        selectedDictionaries.map((dictionary) => [
-          dictionary.id,
-          dictionarySignature(dictionary),
-        ]),
-      ),
-    [selectedDictionaries],
+      mode === "similarity" && metric === "patterns"
+        ? new Map(
+            selectedDictionaries.map((dictionary) => [
+              dictionary.id,
+              dictionarySignature(dictionary),
+            ]),
+          )
+        : new Map<string, Map<string, number>>(),
+    [mode, metric, selectedDictionaries],
   );
 
   const similarity = useMemo(() => {
@@ -190,6 +245,7 @@ export default function AnalysisPage() {
       score: number;
       shared: number;
     }[] = [];
+    if (mode !== "similarity") return { matrix, sharedWords, pairs };
     selectedDictionaries.forEach((first, firstIndex) => {
       selectedDictionaries.forEach((second, secondIndex) => {
         const key = `${first.id}:${second.id}`;
@@ -198,31 +254,35 @@ export default function AnalysisPage() {
           return;
         }
         if (matrix.has(key)) return;
-        const vocabulary = vocabularySimilarity(first, second);
-        const score =
-          metric === "patterns"
-            ? cosineSimilarity(
-                signatures.get(first.id) ?? new Map(),
-                signatures.get(second.id) ?? new Map(),
-              )
-            : vocabulary.score;
+        let shared = 0;
+        let score: number;
+        if (metric === "patterns") {
+          score = cosineSimilarity(
+            signatures.get(first.id) ?? new Map(),
+            signatures.get(second.id) ?? new Map(),
+          );
+        } else {
+          const vocabulary = vocabularySimilarity(first, second);
+          score = vocabulary.score;
+          shared = vocabulary.intersection;
+        }
         matrix.set(key, score);
         matrix.set(`${second.id}:${first.id}`, score);
-        sharedWords.set(key, vocabulary.intersection);
-        sharedWords.set(`${second.id}:${first.id}`, vocabulary.intersection);
+        sharedWords.set(key, shared);
+        sharedWords.set(`${second.id}:${first.id}`, shared);
         if (firstIndex < secondIndex) {
           pairs.push({
             first,
             second,
             score,
-            shared: vocabulary.intersection,
+            shared,
           });
         }
       });
     });
     pairs.sort((first, second) => second.score - first.score);
     return { matrix, sharedWords, pairs };
-  }, [selectedDictionaries, signatures, metric]);
+  }, [mode, selectedDictionaries, signatures, metric]);
 
   const strongestScore = wordResults[0]?.overall ?? 0;
 
@@ -234,6 +294,21 @@ export default function AnalysisPage() {
     );
   }
 
+  function retrySelectedDictionaries() {
+    void ensureDictionariesLoaded(selectedIds)
+      .then(() => {
+        setDictionaryLoadFailure((current) =>
+          current?.selection === selectedIdsKey ? null : current,
+        );
+      })
+      .catch(() =>
+        setDictionaryLoadFailure({
+          selection: selectedIdsKey,
+          message: "Les corpus sélectionnés n’ont pas pu être chargés.",
+        }),
+      );
+  }
+
   function selectCategory(
     category: "Prénoms" | "Mots" | "Lieux" | "Nature et sciences",
   ) {
@@ -241,6 +316,29 @@ export default function AnalysisPage() {
       dictionaries
         .filter((dictionary) => dictionaryCategory(dictionary) === category)
         .map((dictionary) => dictionary.id),
+    );
+  }
+
+  function handleModeTabKey(event: KeyboardEvent<HTMLButtonElement>) {
+    const nextMode =
+      event.key === "ArrowRight" || event.key === "ArrowDown"
+        ? mode === "word"
+          ? "similarity"
+          : "word"
+        : event.key === "ArrowLeft" || event.key === "ArrowUp"
+          ? mode === "word"
+            ? "similarity"
+            : "word"
+          : event.key === "Home"
+            ? "word"
+            : event.key === "End"
+              ? "similarity"
+              : null;
+    if (!nextMode) return;
+    event.preventDefault();
+    setMode(nextMode);
+    window.requestAnimationFrame(() =>
+      document.getElementById(`analysis-tab-${nextMode}`)?.focus(),
     );
   }
 
@@ -273,20 +371,26 @@ export default function AnalysisPage() {
           <div className="analysis-mode" role="tablist" aria-label="Type d’analyse">
             <button
               type="button"
+              id="analysis-tab-word"
               role="tab"
+              aria-controls="analysis-tabpanel"
               aria-selected={mode === "word"}
               className={mode === "word" ? "is-active" : ""}
               onClick={() => setMode("word")}
+              onKeyDown={handleModeTabKey}
             >
               <span>01</span>
               Score d’un mot
             </button>
             <button
               type="button"
+              id="analysis-tab-similarity"
               role="tab"
+              aria-controls="analysis-tabpanel"
               aria-selected={mode === "similarity"}
               className={mode === "similarity" ? "is-active" : ""}
               onClick={() => setMode("similarity")}
+              onKeyDown={handleModeTabKey}
             >
               <span>02</span>
               Similarité des sources
@@ -318,6 +422,16 @@ export default function AnalysisPage() {
                 <span className="section-index">Dictionnaires</span>
                 <strong>{selectedIds.length} sélectionnés</strong>
               </div>
+              {dictionaryLoadError ? (
+                <p role="alert">
+                  {dictionaryLoadError}{" "}
+                  <button type="button" onClick={retrySelectedDictionaries}>
+                    Réessayer
+                  </button>
+                </p>
+              ) : selectedSourcesLoading ? (
+                <p role="status">Chargement des corpus sélectionnés…</p>
+              ) : null}
               <div className="analysis-quick-actions">
                 <button type="button" onClick={() => selectCategory("Mots")}>
                   Tous les mots
@@ -355,7 +469,7 @@ export default function AnalysisPage() {
                         <strong>{dictionary.name}</strong>
                         <small>
                           {dictionaryCategory(dictionary)} ·{" "}
-                          {dictionary.words.length.toLocaleString("fr-FR")}
+                          {(dictionary.wordCount ?? dictionary.words.length).toLocaleString("fr-FR")}
                         </small>
                       </span>
                     </label>
@@ -415,7 +529,13 @@ export default function AnalysisPage() {
             )}
           </aside>
 
-          <div className="analysis-results">
+          <div
+            className="analysis-results"
+            id="analysis-tabpanel"
+            role="tabpanel"
+            aria-labelledby={`analysis-tab-${mode}`}
+            tabIndex={0}
+          >
             {mode === "word" ? (
               <>
                 <div className="analysis-summary">
@@ -426,14 +546,26 @@ export default function AnalysisPage() {
                       <span>{algorithmLabel(algorithm)} · contexte {order}</span>
                     </h2>
                   </div>
-                  <div className="analysis-kpi">
-                    <span>Meilleur score</span>
-                    <strong>{strongestScore.toFixed(1)}</strong>
-                    <small>/ 100</small>
+                <div className="analysis-kpi">
+                  <span>Meilleur score</span>
+                  <strong>
+                    {selectedSourcesLoading || dictionaryLoadError || !wordResults.length
+                      ? "—"
+                      : strongestScore.toFixed(1)}
+                  </strong>
+                  <small>
+                    {dictionaryLoadError
+                      ? "indisponible"
+                      : selectedSourcesLoading
+                        ? "en cours"
+                        : wordResults.length
+                          ? "/ 100"
+                          : "aucun score"}
+                  </small>
                   </div>
                 </div>
 
-                {wordResults.length ? (
+                {wordResults.length && !selectedSourcesLoading && !dictionaryLoadError ? (
                   <>
                     <div className="score-ranking">
                       {wordResults.map((result, index) => (
@@ -473,8 +605,24 @@ export default function AnalysisPage() {
                 ) : (
                   <div className="analysis-empty">
                     <span aria-hidden="true">Aa</span>
-                    <h2>Sélectionnez au moins un dictionnaire.</h2>
-                    <p>Les scores apparaîtront ici, classés du plus élevé au plus faible.</p>
+                    <h2>
+                      {dictionaryLoadError
+                        ? "Sources indisponibles."
+                        : selectedSourcesLoading
+                          ? "Chargement des sources…"
+                          : selectedIds.length === 0
+                            ? "Sélectionnez au moins un dictionnaire."
+                            : !normalizeWord(word)
+                              ? "Saisissez un mot à analyser."
+                              : "Aucun score à afficher."}
+                    </h2>
+                    <p>
+                      {dictionaryLoadError
+                        ? "Réessayez le chargement des corpus sélectionnés."
+                        : selectedSourcesLoading
+                          ? "Les scores apparaîtront dès que les sources seront prêtes."
+                          : "Les scores apparaîtront ici, classés du plus élevé au plus faible."}
+                    </p>
                   </div>
                 )}
               </>
@@ -485,7 +633,13 @@ export default function AnalysisPage() {
                     <p className="section-index">Carte de proximité</p>
                     <h2>
                       Similarité croisée
-                      <span>{selectedDictionaries.length} sources comparées</span>
+                      <span>
+                        {dictionaryLoadError
+                          ? "Sources indisponibles"
+                          : selectedSourcesLoading
+                            ? "Chargement des sources…"
+                            : `${selectedDictionaries.length} sources comparées`}
+                      </span>
                     </h2>
                   </div>
                   <div className="metric-switch" role="group" aria-label="Mesure">
@@ -506,7 +660,9 @@ export default function AnalysisPage() {
                   </div>
                 </div>
 
-                {selectedDictionaries.length >= 2 ? (
+                {selectedDictionaries.length >= 2 &&
+                !selectedSourcesLoading &&
+                !dictionaryLoadError ? (
                   <>
                     <div className="similarity-table-wrap">
                       <table className="similarity-table">
@@ -576,9 +732,9 @@ export default function AnalysisPage() {
                               <span>/ 100</span>
                             </p>
                             <small>
-                              {pair.shared.toLocaleString("fr-FR")} mot
-                              {pair.shared > 1 ? "s" : ""} identique
-                              {pair.shared > 1 ? "s" : ""}
+                              {metric === "patterns"
+                                ? "Le vocabulaire commun n’est pas calculé dans cette mesure."
+                                : `${pair.shared.toLocaleString("fr-FR")} mot${pair.shared > 1 ? "s" : ""} identique${pair.shared > 1 ? "s" : ""}`}
                             </small>
                           </article>
                         ))}
@@ -596,8 +752,22 @@ export default function AnalysisPage() {
                 ) : (
                   <div className="analysis-empty">
                     <span aria-hidden="true">↔</span>
-                    <h2>Sélectionnez au moins deux dictionnaires.</h2>
-                    <p>La matrice et les paires les plus proches apparaîtront ici.</p>
+                    <h2>
+                      {dictionaryLoadError
+                        ? "Sources indisponibles."
+                        : selectedSourcesLoading
+                          ? "Chargement des sources…"
+                          : selectedIds.length < 2
+                            ? "Sélectionnez au moins deux dictionnaires."
+                            : "Sources insuffisantes pour comparer."}
+                    </h2>
+                    <p>
+                      {dictionaryLoadError
+                        ? "Réessayez le chargement des corpus sélectionnés."
+                        : selectedSourcesLoading
+                          ? "La matrice apparaîtra dès que les sources seront prêtes."
+                          : "La matrice et les paires les plus proches apparaîtront ici."}
+                    </p>
                   </div>
                 )}
               </>

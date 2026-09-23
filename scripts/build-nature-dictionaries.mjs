@@ -1,5 +1,6 @@
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { DATASET_METADATA } from "./dataset-metadata.mjs";
+import { sourceSnapshot, snapshotProvenance } from "./source-snapshots.mjs";
 
 const [mineralPagesDirectory] = process.argv.slice(2);
 
@@ -71,6 +72,12 @@ async function extractMineralNames(directory) {
 }
 
 const minerals = await extractMineralNames(mineralPagesDirectory);
+const provenance = snapshotProvenance(await sourceSnapshot(
+  (await readdir(mineralPagesDirectory))
+    .filter((file) => /^minerals-[A-Z]\.json$/u.test(file))
+    .sort()
+    .map((file) => `${mineralPagesDirectory}/${file}`),
+));
 if (minerals.length < 500) {
   throw new Error(
     `Le corpus minéralogique est incomplet : ${minerals.length} noms seulement`,
@@ -83,6 +90,7 @@ const natureDictionaries = [
     name: "Français · minéraux",
     words: minerals,
     ...DATASET_METADATA["fr-nature-mineraux"],
+    ...provenance,
   },
 ];
 

@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { DATASET_METADATA } from "./dataset-metadata.mjs";
+import { sourceSnapshot, snapshotProvenance } from "./source-snapshots.mjs";
 import {
   collectCleanNames,
   collectNormalizedNames,
@@ -66,10 +67,10 @@ function extractFleuves(html) {
   return values;
 }
 
-function withMetadata(id, name, words) {
+function withMetadata(id, name, words, provenance) {
   const metadata = DATASET_METADATA[id];
   if (!metadata) throw new Error(`Métadonnées manquantes : ${id}`);
-  return { id, name, words, ...metadata };
+  return { id, name, words, ...metadata, ...provenance };
 }
 
 function logAudit(id, stats, output) {
@@ -102,6 +103,11 @@ const communes = JSON.parse(communesText).filter(
   (commune) => commune.type === "commune-actuelle" && commune.zone === "metro",
 );
 const geonames = parseGeoNames(geonamesText);
+const snapshotGroups = {
+  communes: snapshotProvenance(await sourceSnapshot([communesPath])),
+  geonames: snapshotProvenance(await sourceSnapshot([geonamesPath])),
+  fleuves: snapshotProvenance(await sourceSnapshot([fleuvesHtmlPath])),
+};
 
 const cityClean = collectNormalizedNames(
   [...communes]
@@ -199,13 +205,13 @@ const beachNames = deterministicSample(
 );
 
 const frenchDictionaries = [
-  withMetadata("fr-lieux-villes", "France · villes et bourgs", cityNames),
-  withMetadata("fr-lieux-villages", "France · villages", villageNames),
-  withMetadata("fr-lieux-rivieres", "France · rivières", riverNames),
-  withMetadata("fr-lieux-fleuves", "France · fleuves", fleuveNames),
-  withMetadata("fr-lieux-forets", "France · forêts", forestNames),
-  withMetadata("fr-lieux-montagnes", "France · montagnes", mountainNames),
-  withMetadata("fr-lieux-plages", "France · plages", beachNames),
+  withMetadata("fr-lieux-villes", "France · villes et bourgs", cityNames, snapshotGroups.communes),
+  withMetadata("fr-lieux-villages", "France · villages", villageNames, snapshotGroups.communes),
+  withMetadata("fr-lieux-rivieres", "France · rivières", riverNames, snapshotGroups.geonames),
+  withMetadata("fr-lieux-fleuves", "France · fleuves", fleuveNames, snapshotGroups.fleuves),
+  withMetadata("fr-lieux-forets", "France · forêts", forestNames, snapshotGroups.geonames),
+  withMetadata("fr-lieux-montagnes", "France · montagnes", mountainNames, snapshotGroups.geonames),
+  withMetadata("fr-lieux-plages", "France · plages", beachNames, snapshotGroups.geonames),
 ];
 
 const targets = new Set(frenchDictionaries.map(({ id }) => id));

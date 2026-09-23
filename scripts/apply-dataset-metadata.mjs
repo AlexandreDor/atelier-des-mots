@@ -11,6 +11,7 @@ const files = [
   "../app/data/nature-dictionaries.json",
 ];
 const seen = new Set();
+const activeInventory = [];
 
 for (const relativePath of files) {
   const url = new URL(relativePath, import.meta.url);
@@ -21,9 +22,25 @@ for (const relativePath of files) {
       const metadata = DATASET_METADATA[dictionary.id];
       if (!metadata) throw new Error(`Métadonnées manquantes : ${dictionary.id}`);
       seen.add(dictionary.id);
-      return { ...dictionary, ...metadata };
+      return {
+        ...dictionary,
+        ...metadata,
+        ...(dictionary.sourceSnapshots
+          ? {
+              sourceVersion: dictionary.sourceVersion,
+              accessedAt: dictionary.accessedAt,
+              sourceSnapshots: dictionary.sourceSnapshots,
+            }
+          : {}),
+      };
     });
   await writeFile(url, `${JSON.stringify(enriched)}\n`);
+  activeInventory.push(
+    ...enriched.map(({ words, ...dictionary }) => ({
+      ...dictionary,
+      wordCount: words.length,
+    })),
+  );
 }
 
 const expected = Object.keys(DATASET_METADATA).filter(
@@ -33,5 +50,17 @@ const missing = expected.filter((id) => !seen.has(id));
 if (missing.length) {
   throw new Error(`Corpus absents : ${missing.join(", ")}`);
 }
+
+const suspendedUrl = new URL("../app/data/suspended-dictionaries.json", import.meta.url);
+const suspendedDictionaries = JSON.parse(await readFile(suspendedUrl, "utf8"));
+const inventory = {
+  active: activeInventory,
+  suspended: suspendedDictionaries.map(({ words = [], ...dictionary }) => ({
+    ...dictionary,
+    wordCount: dictionary.wordCount ?? words.length,
+  })),
+};
+const inventoryUrl = new URL("../app/data/dictionary-inventory.json", import.meta.url);
+await writeFile(inventoryUrl, `${JSON.stringify(inventory)}\n`);
 
 console.log(`${seen.size} corpus actifs documentés.`);

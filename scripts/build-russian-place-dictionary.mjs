@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { DATASET_METADATA } from "./dataset-metadata.mjs";
+import { sourceSnapshot, snapshotProvenance } from "./source-snapshots.mjs";
 
 const [geonamesPath] = process.argv.slice(2);
 
@@ -85,6 +86,7 @@ const [geonamesText, dictionariesText] = await Promise.all([
   ),
 ]);
 const words = buildNames(parseGeoNames(geonamesText));
+const provenance = snapshotProvenance(await sourceSnapshot([geonamesPath]));
 
 if (words.length !== TARGET_COUNT) {
   throw new Error(
@@ -97,6 +99,7 @@ const dictionary = {
   name: "Russie · villes, bourgs et villages (romanisé)",
   words,
   ...DATASET_METADATA[DICTIONARY_ID],
+  ...provenance,
 };
 const dictionaries = JSON.parse(dictionariesText).filter(
   ({ id }) => id !== DICTIONARY_ID,

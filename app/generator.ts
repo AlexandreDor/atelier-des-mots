@@ -217,7 +217,11 @@ type SourceModel = {
 };
 
 const sourceModelCache = new Map<string, SourceModel>();
-const sourceContentHashCache = new WeakMap<string[], number>();
+const MAX_SOURCE_MODELS = 24;
+const sourceWordsCache = new WeakMap<
+  string[],
+  { normalizedWords: string[]; contentHash: number }
+>();
 
 export function normalizeWord(value: string) {
   return value
@@ -331,11 +335,11 @@ function sourceModel(
   phoneticGroups: string[],
   usePhonetic: boolean,
 ) {
-  const normalizedWords = Array.from(
-    new Set(source.words.map(normalizeWord).filter(Boolean)),
-  );
-  let contentHash = sourceContentHashCache.get(source.words);
-  if (contentHash === undefined) {
+  let cachedWords = sourceWordsCache.get(source.words);
+  if (!cachedWords) {
+    const normalizedWords = Array.from(
+      new Set(source.words.map(normalizeWord).filter(Boolean)),
+    );
     let computedHash = 2166136261;
     normalizedWords.forEach((word) => {
       for (const character of word) {
@@ -345,9 +349,10 @@ function sourceModel(
       computedHash ^= 0;
       computedHash = Math.imul(computedHash, 16777619);
     });
-    contentHash = computedHash;
-    sourceContentHashCache.set(source.words, contentHash);
+    cachedWords = { normalizedWords, contentHash: computedHash };
+    sourceWordsCache.set(source.words, cachedWords);
   }
+  const { normalizedWords, contentHash } = cachedWords;
   const cacheKey = JSON.stringify({
     id: source.id,
     size: normalizedWords.length,
@@ -357,7 +362,11 @@ function sourceModel(
     phoneticGroups: usePhonetic ? phoneticGroups : [],
   });
   const cached = sourceModelCache.get(cacheKey);
-  if (cached) return cached;
+  if (cached) {
+    sourceModelCache.delete(cacheKey);
+    sourceModelCache.set(cacheKey, cached);
+    return cached;
+  }
 
   const models = new Map<number, TransitionModel>(
     requestedOrders.map((order) => [order, new Map()]),
@@ -399,6 +408,11 @@ function sourceModel(
     totalWords: normalizedWords.length,
   };
   sourceModelCache.set(cacheKey, built);
+  while (sourceModelCache.size > MAX_SOURCE_MODELS) {
+    const oldestKey = sourceModelCache.keys().next().value;
+    if (oldestKey === undefined) break;
+    sourceModelCache.delete(oldestKey);
+  }
   return built;
 }
 

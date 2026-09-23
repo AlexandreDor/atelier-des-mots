@@ -4,10 +4,14 @@ import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import {
   type Dictionary,
   type DictionaryExport,
+  MAX_DICTIONARY_IMPORT_BYTES,
+  MAX_CUSTOM_DICTIONARY_WORD_LENGTH,
   normalizeDictionaryWords,
   parseDictionaryImport,
+  serializeDictionaryExport,
 } from "./dictionaries";
 import { downloadTextFile } from "./download";
+import { normalizeWord } from "./generator";
 
 type DictionaryManagerProps = {
   dictionaries: Dictionary[];
@@ -40,6 +44,14 @@ export function DictionaryManager({
     event.preventDefault();
     const name = newName.trim();
     if (!name) return;
+    if (name.length > 100) {
+      onMessage("Le nom du dictionnaire est limité à 100 caractères.");
+      return;
+    }
+    if (customDictionaries.length >= 100) {
+      onMessage("La limite de 100 dictionnaires personnalisés est atteinte.");
+      return;
+    }
     if (
       dictionaries.some(
         (dictionary) =>
@@ -69,6 +81,10 @@ export function DictionaryManager({
       onMessage("Le nom du dictionnaire ne peut pas être vide.");
       return;
     }
+    if (name.length > 100) {
+      onMessage("Le nom du dictionnaire est limité à 100 caractères.");
+      return;
+    }
     if (
       dictionaries.some(
         (dictionary) =>
@@ -80,15 +96,40 @@ export function DictionaryManager({
       onMessage("Ce nom de dictionnaire existe déjà.");
       return;
     }
-    const normalizedWords = normalizeDictionaryWords(
-      editedWords.split(/[\n,;]+/),
-    );
+    const rawWords = editedWords.split(/[\n,;]+/);
+    if (
+      rawWords.some(
+        (word) =>
+          Array.from(normalizeWord(word)).length >
+          MAX_CUSTOM_DICTIONARY_WORD_LENGTH,
+      )
+    ) {
+      onMessage(
+        `Chaque mot est limité à ${MAX_CUSTOM_DICTIONARY_WORD_LENGTH} lettres.`,
+      );
+      return;
+    }
+    const normalizedWords = normalizeDictionaryWords(rawWords);
     const words = normalizedWords.slice(0, 100_000);
-    onChange(
-      customDictionaries.map((dictionary) =>
+    const otherWordCount = customDictionaries
+      .filter((dictionary) => dictionary.id !== selected.id)
+      .reduce((total, dictionary) => total + dictionary.words.length, 0);
+    if (otherWordCount + words.length > 250_000) {
+      onMessage("Les dictionnaires personnalisés sont limités à 250 000 mots cumulés.");
+      return;
+    }
+    const nextDictionaries = customDictionaries.map((dictionary) =>
         dictionary.id === selected.id ? { ...dictionary, name, words } : dictionary,
-      ),
-    );
+      );
+    try {
+      serializeDictionaryExport(nextDictionaries);
+    } catch (error) {
+      onMessage(
+        error instanceof Error ? error.message : "La taille maximale de sauvegarde est dépassée.",
+      );
+      return;
+    }
+    onChange(nextDictionaries);
     onMessage(
       normalizedWords.length > words.length
         ? `« ${name} » enregistré. La limite de 100 000 mots a été appliquée.`
@@ -120,8 +161,27 @@ export function DictionaryManager({
     event.target.value = "";
     if (!file) return;
     try {
+      if (file.size > MAX_DICTIONARY_IMPORT_BYTES) {
+        throw new Error("Le fichier dépasse la limite de 64 Mo.");
+      }
       const imported = parseDictionaryImport(await file.text(), dictionaries);
-      onChange([...customDictionaries, ...imported]);
+      const currentWordCount = customDictionaries.reduce(
+        (sum, dictionary) => sum + dictionary.words.length,
+        0,
+      );
+      const addedWords = imported.reduce(
+        (sum, dictionary) => sum + dictionary.words.length,
+        0,
+      );
+      if (customDictionaries.length + imported.length > 100) {
+        throw new Error("La limite de 100 dictionnaires personnalisés est atteinte.");
+      }
+      if (currentWordCount + addedWords > 250_000) {
+        throw new Error("Les dictionnaires personnalisés sont limités à 250 000 mots cumulés.");
+      }
+      const nextDictionaries = [...customDictionaries, ...imported];
+      serializeDictionaryExport(nextDictionaries);
+      onChange(nextDictionaries);
       onSelect(imported[0].id);
       const wordCount = imported.reduce(
         (sum, dictionary) => sum + dictionary.words.length,
@@ -142,12 +202,18 @@ export function DictionaryManager({
       version: 1,
       dictionaries: customDictionaries,
     };
-    downloadTextFile(
-      "atelier-des-mots-dictionnaires.json",
-      JSON.stringify(payload, null, 2),
-      "application/json",
-    );
-    onMessage(`${customDictionaries.length} dictionnaire(s) exporté(s).`);
+    try {
+      downloadTextFile(
+        "atelier-des-mots-dictionnaires.json",
+        serializeDictionaryExport(payload.dictionaries),
+        "application/json",
+      );
+      onMessage(`${customDictionaries.length} dictionnaire(s) exporté(s).`);
+    } catch (error) {
+      onMessage(
+        error instanceof Error ? error.message : "L’export n’a pas pu être créé.",
+      );
+    }
   }
 
   return (

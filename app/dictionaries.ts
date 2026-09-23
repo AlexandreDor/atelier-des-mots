@@ -1,13 +1,12 @@
-import primaryDictionaryData from "./data/dictionaries-primary.json";
-import secondaryDictionaryData from "./data/dictionaries-secondary.json";
-import natureDictionaryData from "./data/nature-dictionaries.json";
-import placeDictionaryData from "./data/place-dictionaries.json";
+import dictionaryInventory from "./data/dictionary-inventory.json";
+import suspendedDictionaryData from "./data/suspended-dictionaries.json";
 import { normalizeWord } from "./generator";
 
 export type Dictionary = {
   id: string;
   name: string;
   words: string[];
+  wordCount?: number;
 };
 
 export type DictionaryExport = {
@@ -15,23 +14,131 @@ export type DictionaryExport = {
   dictionaries: Dictionary[];
 };
 
+export type SuspendedDictionary = Omit<Dictionary, "words"> & {
+  wordCount?: number;
+  status: "suspended";
+  suspensionReason: string;
+  source?: string;
+  sourceUrl?: string;
+  license?: string;
+  licenseUrl?: string;
+  usageRestriction?: string;
+};
+
 export const LEGACY_DICTIONARIES_KEY = "atelier-des-mots:dictionaries:v1";
+export const SUSPENDED_DICTIONARIES =
+  suspendedDictionaryData as SuspendedDictionary[];
 export const CUSTOM_DICTIONARIES_KEY =
   "atelier-des-mots:custom-dictionaries:v2";
+export const MAX_DICTIONARY_IMPORT_BYTES = 64 * 1024 * 1024;
+export const MAX_CUSTOM_DICTIONARY_WORD_LENGTH = 60;
 export const REMOVED_DICTIONARY_IDS = new Set([
   "francais",
   "botanique",
   "matiere",
+  "en-mots",
 ]);
-export const INITIAL_DICTIONARIES = [
-  ...(primaryDictionaryData as Dictionary[]),
-  ...(secondaryDictionaryData as Dictionary[]),
-  ...(placeDictionaryData as Dictionary[]),
-  ...(natureDictionaryData as Dictionary[]),
+const INITIAL_DICTIONARY_ID_LIST = [
+  "fr-mots",
+  "fr-prenoms",
+  "en-prenoms",
+  "de-mots",
+  "de-prenoms",
+  "ja-mots-romaji",
+  "ja-prenoms-romaji",
+  "it-mots",
+  "it-prenoms",
+  "es-mots",
+  "es-prenoms",
+  "ru-mots-cyrillique",
+  "ru-prenoms-cyrillique",
+  "ru-mots-romanise",
+  "ru-prenoms-romanise",
+  "ru-rues-routes-romanise",
+  "en-rues-routes",
+  "fr-lieux-villes",
+  "fr-lieux-villages",
+  "fr-lieux-rivieres",
+  "fr-lieux-fleuves",
+  "fr-lieux-forets",
+  "fr-lieux-montagnes",
+  "fr-lieux-plages",
+  "ru-lieux-localites-romanise",
+  "en-lieux-villes",
+  "hu-lieux-villes",
+  "es-lieux-villes",
+  "hu-rues-routes",
+  "es-rues-routes",
+  "fr-nature-mineraux",
 ];
-export const INITIAL_DICTIONARY_IDS = new Set(
-  INITIAL_DICTIONARIES.map((dictionary) => dictionary.id),
-);
+export const INITIAL_DICTIONARY_IDS = new Set(INITIAL_DICTIONARY_ID_LIST);
+export const DEFAULT_ANALYSIS_DICTIONARY_IDS = [
+  "fr-mots",
+  "de-mots",
+  "ja-mots-romaji",
+  "it-mots",
+  "es-mots",
+  "ru-mots-cyrillique",
+];
+
+const INITIAL_DICTIONARY_CHUNKS = [
+  {
+    ids: [
+      "fr-mots", "fr-prenoms", "en-prenoms", "de-mots", "de-prenoms",
+      "ja-mots-romaji", "ja-prenoms-romaji",
+    ],
+    load: () => import("./data/dictionaries-primary.json"),
+  },
+  {
+    ids: [
+      "it-mots", "it-prenoms", "es-mots", "es-prenoms", "ru-mots-cyrillique",
+      "ru-prenoms-cyrillique", "ru-mots-romanise", "ru-prenoms-romanise",
+      "ru-rues-routes-romanise", "en-rues-routes",
+    ],
+    load: () => import("./data/dictionaries-secondary.json"),
+  },
+  {
+    ids: [
+      "fr-lieux-villes", "fr-lieux-villages", "fr-lieux-rivieres",
+      "fr-lieux-fleuves", "fr-lieux-forets", "fr-lieux-montagnes",
+      "fr-lieux-plages", "ru-lieux-localites-romanise", "en-lieux-villes",
+      "hu-lieux-villes", "es-lieux-villes", "hu-rues-routes", "es-rues-routes",
+    ],
+    load: () => import("./data/place-dictionaries.json"),
+  },
+  {
+    ids: ["fr-nature-mineraux"],
+    load: () => import("./data/nature-dictionaries.json"),
+  },
+] as const;
+
+type DictionaryInventory = {
+  active: Array<Pick<Dictionary, "id" | "name"> & { wordCount: number }>;
+};
+
+export function loadDictionaryInventory(): Dictionary[] {
+  return (dictionaryInventory as DictionaryInventory).active
+    .filter(({ id }) => !REMOVED_DICTIONARY_IDS.has(id))
+    .map(({ id, name, wordCount }) => ({ id, name, wordCount, words: [] }));
+}
+
+export async function loadInitialDictionaries(ids?: string[]): Promise<Dictionary[]> {
+  const requestedIds = ids ? new Set(ids) : null;
+  const chunks = INITIAL_DICTIONARY_CHUNKS.filter(
+    ({ ids: chunkIds }) =>
+      !requestedIds || chunkIds.some((id) => requestedIds.has(id)),
+  );
+  const loaded = await Promise.all(
+    chunks.map(async ({ load }) => (await load()).default as Dictionary[]),
+  );
+  const selectedIds = requestedIds ?? INITIAL_DICTIONARY_IDS;
+  return loaded
+    .flat()
+    .filter(
+      (item) =>
+        !REMOVED_DICTIONARY_IDS.has(item.id) && selectedIds.has(item.id),
+    );
+}
 const fingerprintCache = new WeakMap<string[], string>();
 
 export function isFirstNameDictionary(dictionary: Dictionary) {
@@ -58,7 +165,11 @@ export function normalizeDictionaryWords(words: unknown) {
       words
         .filter((word): word is string => typeof word === "string")
         .map(normalizeWord)
-        .filter((word) => word.length >= 2),
+        .filter(
+          (word) =>
+            word.length >= 2 &&
+            Array.from(word).length <= MAX_CUSTOM_DICTIONARY_WORD_LENGTH,
+        ),
     ),
   );
 }
@@ -73,11 +184,21 @@ function validDictionary(value: unknown): value is Dictionary {
   );
 }
 
+function prefixByCodeUnits(value: string, maximum: number) {
+  let prefix = "";
+  for (const character of value) {
+    if (prefix.length + character.length > maximum) break;
+    prefix += character;
+  }
+  return prefix;
+}
+
 export function sanitizeCustomDictionaries(value: unknown) {
   if (!Array.isArray(value)) return [];
   const seenIds = new Set<string>();
   const seenNames = new Set<string>();
   const sanitized: Dictionary[] = [];
+  let totalWords = 0;
 
   for (const candidate of value.slice(0, 100)) {
     if (!validDictionary(candidate)) continue;
@@ -87,6 +208,8 @@ export function sanitizeCustomDictionaries(value: unknown) {
     if (
       !id ||
       !name ||
+      id.length > 120 ||
+      name.length > 100 ||
       INITIAL_DICTIONARY_IDS.has(id) ||
       REMOVED_DICTIONARY_IDS.has(id) ||
       seenIds.has(id) ||
@@ -94,18 +217,30 @@ export function sanitizeCustomDictionaries(value: unknown) {
     ) {
       continue;
     }
+    if (
+      candidate.words.length > 100_000 ||
+      totalWords + candidate.words.length > 250_000
+    ) {
+      continue;
+    }
+    const words = normalizeDictionaryWords(candidate.words);
+    if (words.length > 100_000 || totalWords + words.length > 250_000) continue;
     sanitized.push({
       id,
       name,
-      words: normalizeDictionaryWords(candidate.words).slice(0, 100_000),
+      words,
     });
+    totalWords += words.length;
     seenIds.add(id);
     seenNames.add(normalizedName);
   }
   return sanitized;
 }
 
-export function migrateLegacyDictionaries(value: unknown) {
+export function migrateLegacyDictionaries(
+  value: unknown,
+  initialDictionaries: Dictionary[] = [],
+) {
   if (!Array.isArray(value)) return [];
   const migrated = sanitizeCustomDictionaries(value);
   const usedIds = new Set(migrated.map(({ id }) => id));
@@ -117,7 +252,7 @@ export function migrateLegacyDictionaries(value: unknown) {
     if (!validDictionary(candidate) || !INITIAL_DICTIONARY_IDS.has(candidate.id)) {
       return;
     }
-    const initial = INITIAL_DICTIONARIES.find(({ id }) => id === candidate.id);
+    const initial = initialDictionaries.find(({ id }) => id === candidate.id);
     if (!initial) return;
     const initialWords = new Set(initial.words.map(normalizeWord));
     const additions = normalizeDictionaryWords(candidate.words).filter(
@@ -148,6 +283,9 @@ export function parseDictionaryImport(
   text: string,
   existingDictionaries: Dictionary[],
 ) {
+  if (new TextEncoder().encode(text).byteLength > MAX_DICTIONARY_IMPORT_BYTES) {
+    throw new Error("Le fichier dépasse la limite de 64 Mo.");
+  }
   const parsed = JSON.parse(text) as unknown;
   const raw = Array.isArray(parsed)
     ? parsed
@@ -163,12 +301,40 @@ export function parseDictionaryImport(
     existingDictionaries.map(({ name }) => name.toLocaleLowerCase("fr-FR")),
   );
   const imported: Dictionary[] = [];
-  raw.slice(0, 100).forEach((candidate, index) => {
+  if (raw.length > 100) {
+    throw new Error("Un fichier peut contenir au maximum 100 dictionnaires.");
+  }
+  let totalWords = 0;
+  raw.forEach((candidate, index) => {
     if (!candidate || typeof candidate !== "object") return;
     const value = candidate as Partial<Dictionary>;
     const name = typeof value.name === "string" ? value.name.trim() : "";
-    const words = normalizeDictionaryWords(value.words).slice(0, 100_000);
-    if (!name || !Array.isArray(value.words)) return;
+    if (!name || name.length > 100 || !Array.isArray(value.words)) return;
+    if (value.words.length > 100_000) {
+      throw new Error(`« ${name} » dépasse la limite de 100 000 mots.`);
+    }
+    if (
+      value.words.some(
+        (word) =>
+          typeof word === "string" &&
+          Array.from(normalizeWord(word)).length >
+            MAX_CUSTOM_DICTIONARY_WORD_LENGTH,
+      )
+    ) {
+      throw new Error(
+        `« ${name} » contient un mot de plus de ${MAX_CUSTOM_DICTIONARY_WORD_LENGTH} lettres.`,
+      );
+    }
+    if (totalWords + value.words.length > 250_000) {
+      throw new Error("L’import dépasse la limite cumulée de 250 000 mots.");
+    }
+    const words = normalizeDictionaryWords(value.words);
+    if (totalWords + words.length > 250_000) {
+      throw new Error(
+        "L’import dépasse la limite cumulée de 250 000 mots après normalisation.",
+      );
+    }
+    totalWords += words.length;
     if (
       typeof value.id === "string" &&
       REMOVED_DICTIONARY_IDS.has(value.id.trim())
@@ -177,7 +343,7 @@ export function parseDictionaryImport(
     }
 
     let id =
-      typeof value.id === "string" && value.id.trim()
+      typeof value.id === "string" && value.id.trim().length <= 120
         ? value.id.trim()
         : `dictionnaire-importe-${Date.now()}-${index + 1}`;
     if (INITIAL_DICTIONARY_IDS.has(id) || existingIds.has(id)) {
@@ -186,7 +352,9 @@ export function parseDictionaryImport(
     let resolvedName = name;
     let suffix = 2;
     while (existingNames.has(resolvedName.toLocaleLowerCase("fr-FR"))) {
-      resolvedName = `${name} (${suffix})`;
+      const label = ` (${suffix})`;
+      const shortenedName = prefixByCodeUnits(name, 100 - label.length);
+      resolvedName = `${shortenedName}${label}`;
       suffix += 1;
     }
     existingIds.add(id);
@@ -198,6 +366,14 @@ export function parseDictionaryImport(
     throw new Error("Aucun dictionnaire valide n’a été trouvé.");
   }
   return imported;
+}
+
+export function serializeDictionaryExport(dictionaries: Dictionary[]) {
+  const serialized = JSON.stringify({ version: 1, dictionaries });
+  if (new TextEncoder().encode(serialized).byteLength > MAX_DICTIONARY_IMPORT_BYTES) {
+    throw new Error("L’export dépasse la limite de 64 Mo et ne pourra pas être réimporté.");
+  }
+  return serialized;
 }
 
 export function dictionaryFingerprint(dictionary: Dictionary) {
