@@ -162,6 +162,30 @@ de reprise relit les données après un échec de chargement, ou réessaie les
 modifications en mémoire après un échec d’enregistrement. Les dictionnaires
 récupérés lors d’un échec de quota peuvent être exportés avant la reprise.
 
+Les téléchargements des corpus sont également récupérables : une tentative
+échouée est retirée du cache, et la reprise effectue une nouvelle requête sans
+recharger la page. Les routes du générateur, de l’analyse et des lieux partagent
+les mêmes ressources JSON. La page des lieux charge son lexique au lancement
+de la génération et écarte les résultats lorsque les réglages ont changé
+pendant le chargement.
+
+Lorsqu’une sauvegarde v1 contient des ajouts personnels à l’ancien corpus
+anglais `en-mots`, la migration les récupère dans une liste « Ajouts · Anglais ».
+Elle distingue ces ajouts des mots intégrés à l’aide d’empreintes SHA-256 de la
+dernière version distribuée. La table de récupération ne contient aucun mot
+du lexique suspendu. Un échec de téléchargement ou une migration abandonnée
+ne remplace pas la sauvegarde historique par un v2 vide.
+
+Les empreintes sont reproductibles depuis la révision Git historique indiquée
+dans le fichier (un clone contenant cette révision est nécessaire) :
+
+```bash
+node --import tsx scripts/build-retired-dictionary-fingerprints.mjs --check
+```
+
+Remplacer `--check` par `--write` pour régénérer la table depuis cette même
+révision, sans télécharger ni réintroduire le corpus anglais.
+
 ## Licences
 
 - Le code est distribué sous [licence MIT](LICENSE).
@@ -271,11 +295,30 @@ actions tied to the current ChatGPT user. Leave public content anonymous.
 - `npm run build`: build and validate the deployable Sites artifact
 - `npm run start`: start the built Vinext application
 - `npm test`: run generator, analysis, persistence, import and reconstruction tests, build, validate the artifact, and check rendered HTML and corpus metadata
+- `npm run test:browser`: check recovery, exports and place generation against the production build in Chromium
+- `npm audit --audit-level=high`: enforce the same dependency security threshold as CI
 - `npm run check:datasets`: verify corpus inventory synchronization without writing data
 - `npm run validate:artifact`: recheck an existing artifact's manifest and ESM `default.fetch` export
 - `npm run db:generate`: generate Drizzle migrations after schema changes
 
 Use build and validation commands for targeted diagnosis after a remote failure, not as part of the normal checkpoint path.
+
+Browser checks require the production artifact produced by `npm test` and a
+Playwright Chromium installation:
+
+```bash
+npx playwright install --with-deps chromium
+npm run test:browser
+```
+
+The Next lint and Vite dynamic-import glob calls use the project-owned adapter
+in [`packages/fast-glob-compat`](packages/fast-glob-compat/README.md). It preserves
+their supported synchronous APIs and validates a limited pattern grammar before
+parsing, rejecting nested alternatives and ambiguous wildcard repetitions.
+Dependency updates must pass its caller integration tests; the adapter
+does not implement the entire upstream `fast-glob` API. Drizzle's legacy loader
+uses a scoped, patched esbuild version, with TypeScript transform controls in
+the same test suite. CI retains the full lint rules and strict audit threshold.
 
 The timeout defaults can be overridden for a controlled canary with `SITES_INSTALL_TIMEOUT`, `SITES_INSTALL_KILL_AFTER`, `SITES_BUILD_TIMEOUT`, and `SITES_BUILD_KILL_AFTER`. A timeout fails the command; the helpers never retry an unchanged install or build.
 

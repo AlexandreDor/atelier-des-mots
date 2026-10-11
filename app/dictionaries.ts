@@ -1,6 +1,8 @@
 import dictionaryInventory from "./data/dictionary-inventory.json";
 import suspendedDictionaryData from "./data/suspended-dictionaries.json";
 import { normalizeWord } from "./generator";
+import { createJsonResource } from "./json-resource";
+import { RETIRED_DICTIONARY_IDS, recoverRetiredDictionaryAdditions } from "./retired-dictionaries";
 
 export type Dictionary = {
   id: string;
@@ -88,7 +90,7 @@ const INITIAL_DICTIONARY_CHUNKS = [
       "fr-mots", "fr-prenoms", "en-prenoms", "de-mots", "de-prenoms",
       "ja-mots-romaji", "ja-prenoms-romaji",
     ],
-    load: () => import("./data/dictionaries-primary.json"),
+    url: new URL("./data/dictionaries-primary.json", import.meta.url),
   },
   {
     ids: [
@@ -96,7 +98,7 @@ const INITIAL_DICTIONARY_CHUNKS = [
       "ru-prenoms-cyrillique", "ru-mots-romanise", "ru-prenoms-romanise",
       "ru-rues-routes-romanise", "en-rues-routes",
     ],
-    load: () => import("./data/dictionaries-secondary.json"),
+    url: new URL("./data/dictionaries-secondary.json", import.meta.url),
   },
   {
     ids: [
@@ -105,11 +107,11 @@ const INITIAL_DICTIONARY_CHUNKS = [
       "fr-lieux-plages", "ru-lieux-localites-romanise", "en-lieux-villes",
       "hu-lieux-villes", "es-lieux-villes", "hu-rues-routes", "es-rues-routes",
     ],
-    load: () => import("./data/place-dictionaries.json"),
+    url: new URL("./data/place-dictionaries.json", import.meta.url),
   },
   {
     ids: ["fr-nature-mineraux"],
-    load: () => import("./data/nature-dictionaries.json"),
+    url: new URL("./data/nature-dictionaries.json", import.meta.url),
   },
 ] as const;
 
@@ -123,14 +125,26 @@ export function loadDictionaryInventory(): Dictionary[] {
     .map(({ id, name, wordCount }) => ({ id, name, wordCount, words: [] }));
 }
 
-export async function loadInitialDictionaries(ids?: string[]): Promise<Dictionary[]> {
+function readDictionaryChunk(value: unknown): Dictionary[] {
+  if (!Array.isArray(value) || value.some((item) =>
+    !validDictionary(item) || item.words.some((word) => typeof word !== "string"),
+  )) throw new Error("Le corpus téléchargé est invalide.");
+  return value;
+}
+
+const loadDictionaryChunk = createJsonResource(readDictionaryChunk);
+
+export async function loadInitialDictionaries(
+  ids?: string[],
+  load: (url: URL) => Promise<Dictionary[]> = loadDictionaryChunk,
+): Promise<Dictionary[]> {
   const requestedIds = ids ? new Set(ids) : null;
   const chunks = INITIAL_DICTIONARY_CHUNKS.filter(
     ({ ids: chunkIds }) =>
       !requestedIds || chunkIds.some((id) => requestedIds.has(id)),
   );
   const loaded = await Promise.all(
-    chunks.map(async ({ load }) => (await load()).default as Dictionary[]),
+    chunks.map(({ url }) => load(url)),
   );
   const selectedIds = requestedIds ?? INITIAL_DICTIONARY_IDS;
   return loaded
@@ -234,9 +248,10 @@ export function createDictionaryId(prefix: string, existingIds: Set<string>) {
   return id;
 }
 
-export function migrateLegacyDictionaries(
+export async function migrateLegacyDictionaries(
   value: unknown,
   initialDictionaries: Dictionary[] = [],
+  recoverRetired = recoverRetiredDictionaryAdditions,
 ) {
   if (!Array.isArray(value)) return [];
   const migrated = sanitizeCustomDictionaries(value);
@@ -245,19 +260,23 @@ export function migrateLegacyDictionaries(
     migrated.map(({ name }) => name.toLocaleLowerCase("fr-FR")),
   );
 
-  value.forEach((candidate) => {
-    if (!validDictionary(candidate) || !INITIAL_DICTIONARY_IDS.has(candidate.id)) {
-      return;
+  for (const candidate of value) {
+    if (!validDictionary(candidate) ||
+        (!INITIAL_DICTIONARY_IDS.has(candidate.id) && !RETIRED_DICTIONARY_IDS.has(candidate.id))) {
+      continue;
     }
     const initial = initialDictionaries.find(({ id }) => id === candidate.id);
-    if (!initial) return;
-    const initialWords = new Set(initial.words.map(normalizeWord));
-    const additions = Array.from(new Set(candidate.words
+    const retired = SUSPENDED_DICTIONARIES.find(({ id }) => id === candidate.id);
+    if (!initial && !retired) continue;
+    const initialWords = new Set(initial?.words.map(normalizeWord));
+    const additions = RETIRED_DICTIONARY_IDS.has(candidate.id)
+      ? await recoverRetired(candidate)
+      : Array.from(new Set(candidate.words
       .filter((word): word is string => typeof word === "string")
       .map(normalizeWord).filter((word) => word.length >= 2))).filter(
       (word) => !initialWords.has(word),
     );
-    if (!additions.length) return;
+    if (!additions.length) continue;
 
     let id = `dictionnaire-ajouts-migres-${candidate.id}`;
     let suffix = 2;
@@ -265,16 +284,17 @@ export function migrateLegacyDictionaries(
       id = `dictionnaire-ajouts-migres-${candidate.id}-${suffix}`;
       suffix += 1;
     }
-    let name = `Ajouts · ${initial.name}`;
+    const sourceName = initial?.name ?? retired!.name;
+    let name = `Ajouts · ${sourceName}`;
     suffix = 2;
     while (usedNames.has(name.toLocaleLowerCase("fr-FR"))) {
-      name = `Ajouts · ${initial.name} (${suffix})`;
+      name = `Ajouts · ${sourceName} (${suffix})`;
       suffix += 1;
     }
     migrated.push({ id, name, words: additions });
     usedIds.add(id);
     usedNames.add(name.toLocaleLowerCase("fr-FR"));
-  });
+  }
   return migrated;
 }
 

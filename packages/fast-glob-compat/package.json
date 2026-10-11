@@ -1,0 +1,11 @@
+{
+  "name": "@atelier-des-mots/fast-glob-compat",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bounded synchronous glob adapter for this project's Next ESLint and Vite callers",
+  "license": "MIT",
+  "main": "index.cjs",
+  "dependencies": {
+    "tinyglobby": "0.2.17"
+  }
+}

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import placeDictionaryData from "../data/place-dictionaries.json";
+import { loadDictionaryInventory, loadInitialDictionaries, isPlaceDictionary } from "../dictionaries";
 import {
   Algorithm,
   GeneratorConfig,
@@ -18,9 +18,10 @@ type Dictionary = {
   id: string;
   name: string;
   words: string[];
+  wordCount?: number;
 };
 
-const PLACE_DICTIONARIES = placeDictionaryData as Dictionary[];
+const PLACE_DICTIONARIES = loadDictionaryInventory().filter(isPlaceDictionary);
 const FRENCH_SPECIALIZED_DICTIONARY_IDS = new Set([
   "fr-lieux-villes",
   "fr-lieux-villages",
@@ -153,29 +154,29 @@ function titleCase(value: string) {
     .join("");
 }
 
-function dictionary(id: string, weight = 1): WeightedSource {
-  const source = PLACE_DICTIONARIES.find((item) => item.id === id);
+function dictionary(id: string, weight = 1, dictionaries: Dictionary[] = PLACE_DICTIONARIES): WeightedSource & { wordCount?: number } {
+  const source = dictionaries.find((item) => item.id === id);
   if (!source) throw new Error(`Dictionnaire manquant : ${id}`);
   return { ...source, weight };
 }
 
-function sourcesFor(language: PlaceLanguage, type: PlaceType) {
+function sourcesFor(language: PlaceLanguage, type: PlaceType, dictionaries: Dictionary[] = PLACE_DICTIONARIES) {
   if (language === "ru-latn") {
-    return [dictionary("ru-lieux-localites-romanise")];
+    return [dictionary("ru-lieux-localites-romanise", 1, dictionaries)];
   }
   if (type === "settlement") {
     return [
-      dictionary("fr-lieux-villes", 1.2),
-      dictionary("fr-lieux-villages", 1),
+      dictionary("fr-lieux-villes", 1.2, dictionaries),
+      dictionary("fr-lieux-villages", 1, dictionaries),
     ];
   }
   if (type === "water") {
     return [
-      dictionary("fr-lieux-rivieres", 1.3),
-      dictionary("fr-lieux-fleuves", 0.8),
+      dictionary("fr-lieux-rivieres", 1.3, dictionaries),
+      dictionary("fr-lieux-fleuves", 0.8, dictionaries),
     ];
   }
-  return [dictionary("fr-lieux-montagnes")];
+  return [dictionary("fr-lieux-montagnes", 1, dictionaries)];
 }
 
 function formatPlaceName(
@@ -341,7 +342,7 @@ export default function PlacesPage() {
   const corpusSize = useMemo(
     () =>
       sourcesFor(language, type).reduce(
-        (total, source) => total + source.words.length,
+        (total, source) => total + (source.wordCount ?? source.words.length),
         0,
       ),
     [language, type],
@@ -352,7 +353,7 @@ export default function PlacesPage() {
         language === "ru-latn"
           ? item.id === "ru-lieux-localites-romanise"
           : FRENCH_SPECIALIZED_DICTIONARY_IDS.has(item.id),
-      ).reduce((total, source) => total + source.words.length, 0),
+      ).reduce((total, source) => total + (source.wordCount ?? source.words.length), 0),
     [language],
   );
   const selectedStructure =
@@ -412,7 +413,7 @@ export default function PlacesPage() {
     };
   }, [handleWorkerError, handleWorkerMessage]);
 
-  function generate() {
+  async function generate() {
     const resolvedSeed = seed.trim() || createSeed();
     setLastSeed(resolvedSeed);
     setGenerationError("");
@@ -458,13 +459,36 @@ export default function PlacesPage() {
     const modelKey = JSON.stringify([sourceKey, algorithm, order]);
     pendingSourceKeyRef.current = sourceKey;
     const includeSources = !workerSourceKeysRef.current.includes(sourceKey);
+    const id = ++requestIdRef.current;
+    const revision = settingsRevisionRef.current;
     setIsGenerating(true);
+    let sources: WeightedSource[] | undefined;
+    if (includeSources) {
+      try {
+        const ids = sourcesFor(language, type).map(({ id }) => id);
+        const loaded = await loadInitialDictionaries(ids);
+        if (id !== requestIdRef.current || workerRef.current !== worker) return;
+        if (revision !== settingsRevisionRef.current) {
+          setResults([]);
+          setIsGenerating(false);
+          setHasGenerated(false);
+          return;
+        }
+        sources = sourcesFor(language, type, loaded);
+      } catch {
+        if (id !== requestIdRef.current || workerRef.current !== worker) return;
+        setIsGenerating(false);
+        setHasGenerated(true);
+        setGenerationError("Les corpus sélectionnés n’ont pas pu être chargés. Réessayez la génération.");
+        return;
+      }
+    }
     try {
       worker.postMessage({
-        id: ++requestIdRef.current,
+        id,
         sourceKey,
         modelKey,
-        sources: includeSources ? sourcesFor(language, type) : undefined,
+        sources,
         config,
       });
     } catch {

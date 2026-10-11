@@ -19,6 +19,7 @@ import {
   serializeDictionaryExport,
 } from "../app/dictionaries.ts";
 import { writeLocalStorage } from "../app/persistence.ts";
+import { readDictionaryFile, recoverRetiredWords } from "./dictionary-test-resources.mjs";
 
 const baseConfig = {
   algorithm: "markov",
@@ -74,18 +75,18 @@ test("classe les identifiants géographiques dans la catégorie Lieux", () => {
   );
 });
 
-test("ne réactive pas les dictionnaires anglais suspendus depuis le stockage", () => {
+test("ne réactive pas les dictionnaires anglais suspendus depuis le stockage", async () => {
   const previousEnglish = {
     id: "en-mots",
     name: "Anglais · mots courants",
     words: ["example", "dictionary"],
   };
   assert.deepEqual(sanitizeCustomDictionaries([previousEnglish]), []);
-  assert.deepEqual(migrateLegacyDictionaries([previousEnglish]), []);
+  assert.deepEqual(await migrateLegacyDictionaries([previousEnglish], [], recoverRetiredWords), []);
 });
 
 test("l’index léger contient tous les corpus actifs chargés à la demande", async () => {
-  const dictionaries = await loadInitialDictionaries();
+  const dictionaries = await loadInitialDictionaries(undefined, readDictionaryFile);
   assert.equal(dictionaries.length, INITIAL_DICTIONARY_IDS.size);
   for (const dictionary of dictionaries) {
     assert.ok(INITIAL_DICTIONARY_IDS.has(dictionary.id), dictionary.id);

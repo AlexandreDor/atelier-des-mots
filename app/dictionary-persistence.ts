@@ -7,6 +7,7 @@ import {
   readStoredDictionaries,
   type Dictionary,
 } from "./dictionaries";
+import { recoverRetiredDictionaryAdditions } from "./retired-dictionaries";
 
 export type DictionaryStorage = Pick<Storage, "getItem" | "setItem">;
 export type DictionaryPersistenceSnapshot = {
@@ -21,6 +22,7 @@ export type DictionaryPersistenceSnapshot = {
 export function createDictionaryPersistence(
   storage: DictionaryStorage,
   loadInitial = loadInitialDictionaries,
+  recoverRetired = recoverRetiredDictionaryAdditions,
 ) {
   let snapshot: DictionaryPersistenceSnapshot = {
     dictionaries: [], initial: [], ready: false, loadError: "", writeError: "",
@@ -46,23 +48,27 @@ export function createDictionaryPersistence(
             const requiredIds = (parsed as Dictionary[])
               .map(({ id }) => id).filter((id) => INITIAL_DICTIONARY_IDS.has(id));
             const initial = requiredIds.length ? await loadInitial(requiredIds) : [];
-            if (!isCurrent()) return snapshot;
             // Another tab or a newer mount may have completed migration while
-            // this load awaited a corpus. Its durable edits take precedence.
-            const newer = storage.getItem(CUSTOM_DICTIONARIES_KEY);
-            if (newer !== null) {
+            // this load awaited corpus data or membership hashes. Check both
+            // asynchronous boundaries before accepting a migration result.
+            const superseded = () => {
+              if (!isCurrent()) return true;
+              const newer = storage.getItem(CUSTOM_DICTIONARIES_KEY);
+              if (newer === null) return false;
               const dictionaries = readStoredDictionaries(JSON.parse(newer));
               saved = JSON.stringify(dictionaries);
               snapshot = { ...snapshot, dictionaries, initial, ready: true };
-              return snapshot;
-            }
-            if (storage.getItem(LEGACY_DICTIONARIES_KEY) !== legacy) {
-              throw new Error("La sauvegarde historique a changé pendant la migration.");
-            }
+              return true;
+            };
+            if (superseded()) return snapshot;
             if ((parsed as Dictionary[]).some(({ id }) =>
               INITIAL_DICTIONARY_IDS.has(id) && !initial.some((dictionary) => dictionary.id === id),
             )) throw new Error("Un corpus nécessaire à la migration est indisponible.");
-            const dictionaries = migrateLegacyDictionaries(parsed, initial);
+            const dictionaries = await migrateLegacyDictionaries(parsed, initial, recoverRetired);
+            if (superseded()) return snapshot;
+            if (storage.getItem(LEGACY_DICTIONARIES_KEY) !== legacy) {
+              throw new Error("La sauvegarde historique a changé pendant la migration.");
+            }
             snapshot = { ...snapshot, dictionaries, initial };
             const serialized = JSON.stringify(dictionaries);
             try {

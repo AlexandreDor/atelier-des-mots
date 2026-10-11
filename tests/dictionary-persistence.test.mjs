@@ -4,6 +4,10 @@ import { createDictionaryPersistence } from "../app/dictionary-persistence.ts";
 import { CUSTOM_DICTIONARIES_KEY, LEGACY_DICTIONARIES_KEY } from "../app/dictionaries.ts";
 import { createCollectionPersistence, readStoredFavorites } from "../app/persistence.ts";
 import { readStoredPresets } from "../app/stored-presets.ts";
+import { recoverRetiredWords, readDictionaryFile } from "./dictionary-test-resources.mjs";
+import { createJsonResource } from "../app/json-resource.ts";
+import { createRetiredDictionaryRecovery, readRetiredBaselines } from "../app/retired-dictionaries.ts";
+import { serializeDictionaryExport, parseDictionaryImport } from "../app/dictionaries.ts";
 
 function memoryStorage(entries = []) {
   const values = new Map(entries);
@@ -34,6 +38,74 @@ function word(index) {
 }
 const custom = { id: "mine", name: "Mes mots", words: ["soleil"] };
 const initial = [{ id: "fr-mots", name: "Français", words: ["soleil"] }];
+
+test("retired English migration recovers personal additions without retaining baseline words", async () => {
+  const personal = ["brumalexandre", "a".repeat(61)];
+  const legacy = JSON.stringify([
+    { id: "en-mots", name: "Anglais", words: ["EXAMPLE", "dictionary", ...personal, "Brumalexandre"] },
+    custom,
+    { id: "dictionnaire-ajouts-migres-en-mots", name: "Ajouts · Anglais · mots courants", words: [] },
+  ]);
+  const storage = memoryStorage([[LEGACY_DICTIONARIES_KEY, legacy]]);
+  const snapshot = await createDictionaryPersistence(storage, async () => [], recoverRetiredWords).load();
+  assert.equal(snapshot.ready, true);
+  assert.equal(snapshot.loadError, "");
+  const recovered = snapshot.dictionaries.find(({ id }) => id === "dictionnaire-ajouts-migres-en-mots-2");
+  assert.deepEqual(recovered.words, personal);
+  assert.equal(recovered.name, "Ajouts · Anglais · mots courants (2)");
+  assert.equal(snapshot.dictionaries.some(({ id }) => id === "en-mots"), false);
+  assert.equal(storage.values.get(LEGACY_DICTIONARIES_KEY), legacy);
+  assert.deepEqual(parseDictionaryImport(serializeDictionaryExport(snapshot.dictionaries), []), snapshot.dictionaries);
+  assert.deepEqual((await createDictionaryPersistence(storage).load()).dictionaries, snapshot.dictionaries);
+});
+
+test("a failed retired baseline fetch cannot commit v2 and actually refetches on retry", async () => {
+  const legacy = JSON.stringify([{ id: "en-mots", name: "Anglais", words: ["example", "brumalexandre"] }]);
+  const storage = memoryStorage([[LEGACY_DICTIONARIES_KEY, legacy]]);
+  let attempts = 0;
+  const resource = createJsonResource(readRetiredBaselines, async (url) => {
+    attempts++;
+    if (attempts === 1) return new Response("offline", { status: 503 });
+    return Response.json(await readDictionaryFile(url));
+  });
+  const controller = createDictionaryPersistence(storage, async () => [], createRetiredDictionaryRecovery(resource));
+  const failed = await controller.load();
+  assert.equal(failed.ready, false);
+  assert.ok(failed.loadError);
+  assert.equal(storage.writes.length, 0);
+  assert.equal(storage.values.has(CUSTOM_DICTIONARIES_KEY), false);
+  const recovered = await controller.load();
+  assert.equal(recovered.ready, true);
+  assert.equal(attempts, 2);
+  assert.deepEqual(recovered.dictionaries[0].words, ["brumalexandre"]);
+  assert.equal(storage.values.get(LEGACY_DICTIONARIES_KEY), legacy);
+});
+
+test("retired recovery cannot overwrite newer durable data or commit an abandoned load", async () => {
+  for (const cancel of [false, true]) {
+    const legacy = JSON.stringify([{ id: "en-mots", name: "Anglais", words: ["personal"] }]);
+    const storage = memoryStorage([[LEGACY_DICTIONARIES_KEY, legacy]]);
+    let resolve;
+    let active = true;
+    const recovery = new Promise((done) => { resolve = done; });
+    const controller = createDictionaryPersistence(storage, async () => [], () => recovery);
+    const pending = controller.load({ isCurrent: () => active });
+    await Promise.resolve();
+    if (cancel) active = false;
+    else storage.values.set(CUSTOM_DICTIONARIES_KEY, JSON.stringify([custom]));
+    resolve(["personal"]);
+    const snapshot = await pending;
+    assert.equal(storage.writes.length, 0);
+    assert.equal(storage.values.get(LEGACY_DICTIONARIES_KEY), legacy);
+    if (cancel) {
+      assert.equal(snapshot.ready, false);
+      assert.equal(storage.values.has(CUSTOM_DICTIONARIES_KEY), false);
+    } else {
+      assert.equal(snapshot.ready, true);
+      assert.deepEqual(snapshot.dictionaries, [custom]);
+    }
+  }
+});
 
 test("historical v2 retains 270000 words, long fields and more than 100 lists without load writes", async () => {
   const dictionaries = Array.from({ length: 3 }, (_, index) => ({

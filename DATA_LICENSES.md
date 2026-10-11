@@ -43,6 +43,14 @@ provient de [Google 10,000 English](https://github.com/first20hours/google-10000
 avec une licence amont spécifique qui réserve son usage au personnel et au non
 commercial dans les informations disponibles.
 
+La récupération des ajouts personnels des sauvegardes v1 utilise
+`app/data/retired-dictionary-fingerprints.json`. Cette table conserve uniquement
+les empreintes SHA-256 des mots normalisés de la dernière version distribuée,
+la révision Git `320cafa206385e25cc197c4e9a41e58fd3bd90a1` et l’empreinte de son
+fichier source. Elle ne contient aucun mot du corpus suspendu et n’est pas
+comptée parmi les lexiques actifs. La migration exporte uniquement les ajouts
+qui ne correspondent pas à ces empreintes ; la sauvegarde v1 reste conservée.
+
 Les corpus `fr-nature-animaux`, `fr-nature-plantes` et
 `fr-nature-champignons`, auparavant dérivés de TAXREF, ont été retirés des
 fichiers distribués le 1er août 2026. La fiche GBIF de TAXREF affiche à la fois
