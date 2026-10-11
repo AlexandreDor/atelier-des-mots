@@ -126,6 +126,59 @@ test("legacy recovery retries its baseline and preserves personal English additi
   assert.equal(requests(), 2, "v2 reload does not need the retired baseline");
 });
 
+test("v1 file restore preserves historical fields and volumes through the manager, v2 export and reload", { timeout: 30000 }, async (t) => {
+  const page = await newPage(t);
+  function word(index) {
+    let result = "m";
+    do {
+      result += String.fromCharCode(97 + index % 26);
+      index = Math.floor(index / 26);
+    } while (index);
+    return result;
+  }
+  const existing = { id: "existing", name: "Déjà présent", words: ["étoile"] };
+  const dictionaries = [
+    { id: "i".repeat(121), name: "n".repeat(101), words: ["a".repeat(61)] },
+    ...Array.from({ length: 3 }, (_, index) => ({
+      id: `large-${index}`, name: `Grande liste ${index}`,
+      words: Array.from({ length: 90_000 }, (_, offset) => word(index * 90_000 + offset)),
+    })),
+    ...Array.from({ length: 101 }, (_, index) => ({ id: `empty-${index}`, name: `Vide ${index}`, words: [] })),
+  ];
+  await page.addInitScript(({ key, existing }) => {
+    if (localStorage.getItem(key) === null) localStorage.setItem(key, JSON.stringify([existing]));
+  }, { key: currentKey, existing });
+  await page.goto(origin);
+  await page.getByRole("button", { name: "Gérer les dictionnaires", exact: false }).click();
+  const fileInput = page.locator('input[type="file"]');
+  await fileInput.setInputFiles({
+    name: "ancienne-sauvegarde.json", mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify({ version: 1, dictionaries }, null, 2)),
+  });
+  await expect(page.getByText(`105 dictionnaires et ${(270_001).toLocaleString("fr-FR")} mots importés.`, { exact: true })).toBeVisible();
+  const restored = [existing, ...dictionaries];
+  assert.deepEqual(await page.evaluate((key) => JSON.parse(localStorage.getItem(key)), currentKey), restored);
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByRole("button", { name: "Exporter JSON" }).click(),
+  ]);
+  const exported = JSON.parse(await readFile(await download.path(), "utf8"));
+  assert.equal(exported.version, 2);
+  assert.deepEqual(exported.dictionaries, restored);
+  await fileInput.setInputFiles({
+    name: "sauvegarde-invalide.json", mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify({ version: 1, dictionaries: [
+      { id: "another", name: "Autre", words: ["soleil"] },
+      { id: "corrupt", name: "Corrompu", words: [null] },
+    ] })),
+  });
+  await expect(page.getByText("La sauvegarde contient un dictionnaire invalide ou un identifiant dupliqué.", { exact: true })).toBeVisible();
+  assert.deepEqual(await page.evaluate((key) => JSON.parse(localStorage.getItem(key)), currentKey), restored);
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Appliquer et générer 9 mots" })).toBeEnabled();
+  assert.deepEqual(await page.evaluate((key) => JSON.parse(localStorage.getItem(key)), currentKey), restored);
+});
+
 test("analysis retries the failed asset and renders all six selected sources", { timeout: 30000 }, async (t) => {
   const page = await newPage(t);
   const requests = await failFirstAsset(page, "**/assets/dictionaries-primary-*.json");

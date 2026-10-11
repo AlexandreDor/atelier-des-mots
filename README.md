@@ -151,10 +151,15 @@ exportable, renommable et réductible. De même, les limites de 300 favoris et
 existantes.
 
 L’export JSON utilise une sauvegarde identifiée de version 2, réimportable
-sans perdre les mots ou champs historiques dépassant ces limites. La limite
-de fichier de 64 Mo et la validation de sa structure restent applicables.
-Les imports usuels de version 1 et les tableaux de dictionnaires restent
-acceptés dans les limites des nouveaux imports.
+sans perdre les mots ou champs historiques dépassant ces limites. Les anciens
+exports de l’application, de forme `{ "version": 1, "dictionaries": [...] }`,
+bénéficient de la même conservation : noms et mots longs, collections de plus
+de 100 listes et volumes historiques restent restaurables. La limite de fichier
+de 64 Mo et la validation de chaque dictionnaire restent applicables. Une
+sauvegarde invalide ou contenant un identifiant de corpus retiré est refusée
+explicitement, sans restauration partielle. Les tableaux de dictionnaires et
+les fichiers sans marqueur de sauvegarde restent soumis aux limites des nouveaux
+imports.
 
 Une lecture invalide ou une migration interrompue n’autorise aucune écriture
 sur les données concernées. La migration conserve la sauvegarde v1 ; le bouton

@@ -17,6 +17,11 @@ export type DictionaryExport = {
   dictionaries: Dictionary[];
 };
 
+type LegacyDictionaryExport = {
+  version: 1;
+  dictionaries: Dictionary[];
+};
+
 export type SuspendedDictionary = Omit<Dictionary, "words"> & {
   wordCount?: number;
   status: "suspended";
@@ -232,10 +237,13 @@ export function readStoredDictionaries(value: unknown): Dictionary[] {
   return sanitizeCustomDictionaries(value);
 }
 
-export function isDictionaryBackup(value: unknown): value is DictionaryExport {
-  return Boolean(value && typeof value === "object" &&
-    (value as Partial<DictionaryExport>).version === 2 &&
-    (value as Partial<DictionaryExport>).format === "atelier-des-mots:dictionary-backup");
+export function isDictionaryBackup(value: unknown): value is DictionaryExport | LegacyDictionaryExport {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as { version?: unknown; format?: unknown };
+  // Before v2 introduced a format marker, the app exported { version: 1, dictionaries }.
+  // Both formats preserve historical content; the importer still validates every entry.
+  return candidate.version === 1 ||
+    (candidate.version === 2 && candidate.format === "atelier-des-mots:dictionary-backup");
 }
 
 export function createDictionaryId(prefix: string, existingIds: Set<string>) {
@@ -362,7 +370,7 @@ export function parseDictionaryImport(
       typeof value.id === "string" &&
       REMOVED_DICTIONARY_IDS.has(value.id.trim())
     ) {
-      return;
+      throw new Error(`Le dictionnaire « ${value.id.trim()} » a été retiré et ne peut pas être importé. Aucun dictionnaire du fichier n’a été importé.`);
     }
 
     let id = typeof value.id === "string" && value.id.trim() &&

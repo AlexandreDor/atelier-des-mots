@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   editCustomDictionary, parseDictionaryImport, readStoredDictionaries,
-  serializeDictionaryExport, MAX_DICTIONARY_IMPORT_BYTES,
+  serializeDictionaryExport, isDictionaryBackup, MAX_DICTIONARY_IMPORT_BYTES,
 } from "../app/dictionaries.ts";
 import { createDictionaryPersistence } from "../app/dictionary-persistence.ts";
 
@@ -62,24 +62,60 @@ test("app backup restores historical sizes, long IDs/names/words and more than 1
   assert.deepEqual(readStoredDictionaries(parseDictionaryImport(exported, [])), dictionaries);
 });
 
-test("backup restore retains content and resolves existing ID/name collisions", () => {
-  const dictionary = { id: "mine", name: "n".repeat(101), words: ["a".repeat(61)] };
-  const imported = parseDictionaryImport(serializeDictionaryExport([dictionary]), [dictionary]);
-  assert.notEqual(imported[0].id, dictionary.id);
-  assert.notEqual(imported[0].name, dictionary.name);
-  assert.deepEqual(imported[0].words, dictionary.words);
-  assert.equal(readStoredDictionaries(imported).length, 1);
+test("legacy v1 exports retain long fields and every dictionary instead of silently excluding lists", () => {
+  const dictionaries = [
+    { id: "i".repeat(121), name: "n".repeat(101), words: ["soleil"] },
+    { id: "long-word", name: "Mot historique", words: ["a".repeat(61)] },
+    { id: "ordinary", name: "Liste ordinaire", words: ["lune"] },
+  ];
+  const exported = JSON.stringify({ version: 1, dictionaries }, null, 2);
+  assert.equal(isDictionaryBackup(JSON.parse(exported)), true);
+  assert.deepEqual(parseDictionaryImport(exported, []), dictionaries);
 });
 
-test("backup marker does not bypass schema validation or reactivate suspended corpora", () => {
-  const backup = (dictionaries) => JSON.stringify({ version: 2, format: "atelier-des-mots:dictionary-backup", dictionaries });
-  assert.throws(() => parseDictionaryImport(backup([{ id: "mine", name: "Mine", words: [null] }]), []), /invalide/u);
-  assert.throws(() => parseDictionaryImport(backup([{ id: "", name: "Mine", words: [] }]), []), /invalide/u);
-  const imported = parseDictionaryImport(backup([
-    { id: "en-mots", name: "Suspended", words: ["example"] },
-    { id: "mine", name: "Mine", words: ["soleil"] },
-  ]), []);
-  assert.deepEqual(imported.map(({ id }) => id), ["mine"]);
+test("legacy v1 exports over new collection limits survive persistence, reload and v2 export", async () => {
+  const dictionaries = [
+    ...Array.from({ length: 3 }, (_, index) => ({
+      id: `large-${index}`, name: `Grande liste ${index}`,
+      words: Array.from({ length: 90_000 }, (_, offset) => word(index * 90_000 + offset)),
+    })),
+    { id: "over-list", name: "Plus de 100000", words: Array.from({ length: 100_001 }, (_, index) => word(index)) },
+    ...Array.from({ length: 101 }, (_, index) => ({ id: `empty-${index}`, name: `Vide ${index}`, words: [] })),
+  ];
+  const imported = parseDictionaryImport(JSON.stringify({ version: 1, dictionaries }), []);
+  let serialized = null;
+  const storage = { getItem: () => serialized, setItem: (_key, value) => { serialized = value; } };
+  const controller = createDictionaryPersistence(storage);
+  await controller.load();
+  assert.equal(controller.save(imported).writeError, "");
+  const restored = (await createDictionaryPersistence(storage).load()).dictionaries;
+  assert.deepEqual(restored, dictionaries);
+  assert.deepEqual(parseDictionaryImport(serializeDictionaryExport(restored), []), dictionaries);
+});
+
+test("backup restore retains content and resolves existing ID/name collisions", () => {
+  const dictionary = { id: "mine", name: "n".repeat(101), words: ["a".repeat(61)] };
+  for (const exported of [JSON.stringify({ version: 1, dictionaries: [dictionary] }), serializeDictionaryExport([dictionary])]) {
+    const imported = parseDictionaryImport(exported, [dictionary]);
+    assert.notEqual(imported[0].id, dictionary.id);
+    assert.equal(imported[0].name, `${dictionary.name} (2)`);
+    assert.deepEqual(imported[0].words, dictionary.words);
+    assert.equal(readStoredDictionaries(imported).length, 1);
+  }
+});
+
+test("v1 and v2 backups reject malformed data and report removed corpora without a partial restore", () => {
+  for (const marker of [{ version: 1 }, { version: 2, format: "atelier-des-mots:dictionary-backup" }]) {
+    const backup = (dictionaries) => JSON.stringify({ ...marker, dictionaries });
+    const valid = { id: "mine", name: "Mine", words: ["soleil"] };
+    for (const invalid of [{ ...valid, words: [null] }, { ...valid, id: "" }, { ...valid, name: " " }, { id: "broken" }]) {
+      assert.throws(() => parseDictionaryImport(backup([valid, invalid]), []), /invalide/u);
+    }
+    assert.throws(() => parseDictionaryImport(backup([valid, valid]), []), /dupliqué/u);
+    assert.throws(() => parseDictionaryImport(backup([
+      { id: "en-mots", name: "Suspended", words: ["example"] }, valid,
+    ]), []), /en-mots.*retiré/u);
+  }
 });
 
 test("unmarked imports still enforce new-content bounds", () => {
@@ -89,6 +125,10 @@ test("unmarked imports still enforce new-content bounds", () => {
     Array.from({ length: 101 }, (_, index) => ({ name: `List ${index}`, words: [] })),
     Array.from({ length: 3 }, (_, index) => ({ name: `List ${index}`, words: new Array(90_000).fill("mot") })),
   ]) assert.throws(() => parseDictionaryImport(JSON.stringify(payload), []));
+  for (const marker of [{}, { version: "1" }, { version: 3 }, { version: 2, format: "unknown" }]) {
+    const dictionaries = [{ id: "mine", name: "Mine", words: ["a".repeat(61)] }];
+    assert.throws(() => parseDictionaryImport(JSON.stringify({ ...marker, dictionaries }), []), /60 lettres/u);
+  }
   assert.throws(() => parseDictionaryImport(" ".repeat(MAX_DICTIONARY_IMPORT_BYTES + 1), []), /64 Mo/u);
 });
 
