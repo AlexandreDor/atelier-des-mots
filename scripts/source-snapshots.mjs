@@ -1,14 +1,16 @@
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
 import { basename } from "node:path";
 
 export async function sourceSnapshot(paths) {
   const capturedAt = new Date().toISOString();
-  return Promise.all(paths.map(async (path) => ({
-    file: basename(path),
-    sha256: createHash("sha256").update(await readFile(path)).digest("hex"),
-    capturedAt,
-  })));
+  const snapshots = [];
+  for (const path of paths) {
+    const hash = createHash("sha256");
+    for await (const chunk of createReadStream(path)) hash.update(chunk);
+    snapshots.push({ file: basename(path), sha256: hash.digest("hex"), capturedAt });
+  }
+  return snapshots;
 }
 
 export function snapshotProvenance(sourceSnapshots) {

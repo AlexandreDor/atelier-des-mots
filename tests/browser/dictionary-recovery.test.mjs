@@ -189,6 +189,80 @@ test("analysis retries the failed asset and renders all six selected sources", {
   await expect(page.getByRole("button", { name: "Réessayer", exact: true })).toHaveCount(0);
 });
 
+test("analysis exposes failed legacy migration and restores personal dictionaries on retry without reloading", { timeout: 30000 }, async (t) => {
+  const page = await newPage(t);
+  const requests = await failFirstAsset(page, "**/assets/retired-dictionary-fingerprints-*.json", "http");
+  const personal = { id: "my-personal", name: "Ma liste personnelle", words: ["luciole", "velours"] };
+  const legacy = JSON.stringify([
+    { id: "en-mots", name: "Anglais", words: ["example", "dictionary", "brumalexandre"] },
+    personal,
+  ]);
+  await page.addInitScript(({ key, legacy }) => {
+    if (localStorage.getItem(key) === null) localStorage.setItem(key, legacy);
+  }, { key: legacyKey, legacy });
+  await page.goto(`${origin}/analyse`);
+  const retry = page.getByRole("button", { name: "Réessayer les dictionnaires personnels", exact: true });
+  await expect(retry).toBeVisible();
+  await expect(page.getByRole("alert")).toContainText("Les dictionnaires locaux n’ont pas pu être chargés.");
+  await expect(page.locator(".score-row")).toHaveCount(6);
+  assert.equal(await page.evaluate((key) => localStorage.getItem(key), currentKey), null);
+  assert.equal(await page.evaluate((key) => localStorage.getItem(key), legacyKey), legacy);
+  await retry.click();
+  await expect(retry).toHaveCount(0);
+  assert.equal(requests(), 2);
+  const recovered = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)), currentKey);
+  const recoveredEnglish = recovered.find(({ id }) => id === "dictionnaire-ajouts-migres-en-mots");
+  assert.deepEqual(recovered.find(({ id }) => id === personal.id), personal);
+  assert.deepEqual(recoveredEnglish.words, ["brumalexandre"]);
+  assert.equal(await page.evaluate((key) => localStorage.getItem(key), legacyKey), legacy);
+  await page.getByRole("button", { name: "Aucun", exact: true }).click();
+  await page.getByRole("checkbox", { name: /Ma liste personnelle/u }).check();
+  await page.getByRole("checkbox", { name: /Ajouts · Anglais/u }).check();
+  await expect(page.locator(".score-row")).toHaveCount(2);
+  assert.deepEqual((await page.locator(".score-source strong").allTextContents()).sort(), [recoveredEnglish.name, personal.name].sort());
+  assert.equal(page.url(), `${origin}/analyse`);
+});
+
+test("analysis keeps the current selection retry available when an older retry fails", { timeout: 30000 }, async (t) => {
+  const page = await newPage(t);
+  let release;
+  let requested;
+  const waiting = new Promise((resolve) => { requested = resolve; });
+  const gate = new Promise((resolve) => { release = resolve; });
+  t.after(() => release());
+  let primaryRequests = 0;
+  await page.route("**/assets/dictionaries-primary-*.json", async (route) => {
+    primaryRequests++;
+    if (primaryRequests === 2) {
+      requested();
+      await gate;
+    }
+    if (primaryRequests <= 2) {
+      await route.fulfill({ status: 503, body: "temporarily unavailable" });
+    } else await route.continue();
+  });
+  const placeRequests = await failFirstAsset(page, "**/assets/place-dictionaries-*.json", "http");
+  await page.goto(`${origin}/analyse`);
+  const retry = page.getByRole("button", { name: "Réessayer", exact: true });
+  await retry.click();
+  await waiting;
+  await page.getByRole("button", { name: "Tous les lieux", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("Les corpus sélectionnés n’ont pas pu être chargés.");
+  assert.equal(placeRequests(), 1);
+  const staleResponse = page.waitForResponse((response) => /\/dictionaries-primary-[^/]+\.json$/u.test(response.url()));
+  release();
+  await staleResponse;
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await expect(retry).toBeVisible();
+  await expect(page.getByRole("alert")).toContainText("Les corpus sélectionnés n’ont pas pu être chargés.");
+  await retry.click();
+  await expect(retry).toHaveCount(0);
+  await expect(page.locator(".score-row")).toHaveCount(15);
+  assert.equal(placeRequests(), 2);
+  assert.equal(primaryRequests, 2);
+  assert.equal(page.url(), `${origin}/analyse`);
+});
+
 test("places fetches only when generated and retries before using its worker", { timeout: 30000 }, async (t) => {
   const page = await newPage(t);
   const requests = await failFirstAsset(page, "**/assets/place-dictionaries-*.json", "http");

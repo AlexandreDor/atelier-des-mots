@@ -106,7 +106,7 @@ function algorithmLabel(algorithm: Algorithm) {
 }
 
 export default function AnalysisPage() {
-  const { dictionaries, ensureDictionariesLoaded, isLoaded } = useDictionaries();
+  const { dictionaries, ensureDictionariesLoaded, isLoaded, storageError, retryStorage } = useDictionaries();
   const [mode, setMode] = useState<AnalysisMode>("word");
   const [word, setWord] = useState("brumelle");
   const [selectedIds, setSelectedIds] =
@@ -115,6 +115,7 @@ export default function AnalysisPage() {
   const [order, setOrder] = useState(2);
   const [temperature, setTemperature] = useState(0.9);
   const [metric, setMetric] = useState<SimilarityMetric>("patterns");
+  const [dictionaryLoadAttempt, setDictionaryLoadAttempt] = useState(0);
   const [dictionaryLoadFailure, setDictionaryLoadFailure] = useState<{
     selection: string;
     message: string;
@@ -143,7 +144,7 @@ export default function AnalysisPage() {
     return () => {
       active = false;
     };
-  }, [ensureDictionariesLoaded, isLoaded, selectedIds, selectedIdsKey]);
+  }, [ensureDictionariesLoaded, isLoaded, selectedIds, selectedIdsKey, dictionaryLoadAttempt]);
   const dictionaryLoadError =
     dictionaryLoadFailure?.selection === selectedIdsKey
       ? dictionaryLoadFailure.message
@@ -260,18 +261,7 @@ export default function AnalysisPage() {
   }
 
   function retrySelectedDictionaries() {
-    void ensureDictionariesLoaded(selectedIds)
-      .then(() => {
-        setDictionaryLoadFailure((current) =>
-          current?.selection === selectedIdsKey ? null : current,
-        );
-      })
-      .catch(() =>
-        setDictionaryLoadFailure({
-          selection: selectedIdsKey,
-          message: "Les corpus sélectionnés n’ont pas pu être chargés.",
-        }),
-      );
+    setDictionaryLoadAttempt((current) => current + 1);
   }
 
   function selectCategory(
@@ -387,6 +377,14 @@ export default function AnalysisPage() {
                 <span className="section-index">Dictionnaires</span>
                 <strong>{selectedIds.length} sélectionnés</strong>
               </div>
+              {storageError && (
+                <p role="alert">
+                  {storageError}{" "}
+                  <button type="button" onClick={retryStorage}>
+                    Réessayer les dictionnaires personnels
+                  </button>
+                </p>
+              )}
               {dictionaryLoadError ? (
                 <p role="alert">
                   {dictionaryLoadError}{" "}
