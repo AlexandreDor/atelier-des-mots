@@ -4,54 +4,24 @@ import { useEffect, useMemo, useState } from "react";
 import type { KeyboardEvent } from "react";
 import Link from "next/link";
 import {
+  createAnalysisConfig,
+  prepareAnalysisSources,
+  scoreAnalysisWord,
+} from "../analysis";
+import {
   DEFAULT_ANALYSIS_DICTIONARY_IDS,
   isFirstNameDictionary,
   isNatureDictionary,
   isPlaceDictionary,
   type Dictionary,
 } from "../dictionaries";
-import {
-  Algorithm,
-  GeneratorConfig,
-  normalizeWord,
-  prepareModel,
-  wordProbabilityBreakdown,
-} from "../generator";
+import { normalizeWord, type Algorithm } from "../generator";
 import { useDictionaries } from "../use-dictionaries";
 
 type AnalysisMode = "word" | "similarity";
 type SimilarityMetric = "patterns" | "vocabulary";
 
 const DEFAULT_SELECTED_IDS = DEFAULT_ANALYSIS_DICTIONARY_IDS;
-
-function scorePercent(logProbability: number | null) {
-  if (logProbability === null || !Number.isFinite(logProbability)) return 0;
-  return Math.min(100, Math.max(0, Math.exp(logProbability) * 100));
-}
-
-function createConfig(
-  algorithm: Algorithm,
-  order: number,
-  temperature: number,
-): GeneratorConfig {
-  return {
-    algorithm,
-    order: algorithm === "phonetic" ? Math.min(3, order) : order,
-    temperature,
-    interpolation: 0.7,
-    minLength: 1,
-    maxLength: 40,
-    count: 1,
-    seed: "analyse",
-    constraints: {
-      startsWith: "",
-      endsWith: "",
-      includes: "",
-      excludes: "",
-      allowDictionaryWords: true,
-    },
-  };
-}
 
 function dictionaryCategory(dictionary: Dictionary) {
   if (isNatureDictionary(dictionary)) {
@@ -198,30 +168,25 @@ export default function AnalysisPage() {
   );
 
   const config = useMemo(
-    () => createConfig(algorithm, order, temperature),
+    () => createAnalysisConfig(algorithm, order, temperature),
     [algorithm, order, temperature],
   );
+  const modelConfig = useMemo(
+    () => createAnalysisConfig(algorithm, order),
+    [algorithm, order],
+  );
+  const analysisSources = useMemo(
+    () =>
+      mode === "word"
+        ? prepareAnalysisSources(selectedDictionaries, modelConfig)
+        : [],
+    [mode, selectedDictionaries, modelConfig],
+  );
 
-  const wordResults = useMemo(() => {
-    if (mode !== "word") return [];
-    if (!normalizeWord(word)) return [];
-    return selectedDictionaries
-      .map((dictionary) => {
-        const model = prepareModel(
-          [{ ...dictionary, weight: 1 }],
-          config,
-        );
-        const breakdown = wordProbabilityBreakdown(word, model, config, true);
-        return {
-          dictionary,
-          overall: scorePercent(breakdown.overallLogProbability),
-          letters: scorePercent(breakdown.lettersLogProbability),
-          end: scorePercent(breakdown.endLogProbability),
-          present: model.sourceWords.has(normalizeWord(word)),
-        };
-      })
-      .sort((first, second) => second.overall - first.overall);
-  }, [mode, selectedDictionaries, word, config]);
+  const wordResults = useMemo(
+    () => scoreAnalysisWord(word, analysisSources, config),
+    [analysisSources, word, config],
+  );
 
   const signatures = useMemo(
     () =>

@@ -1,107 +1,79 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from "react";
 import {
-  CUSTOM_DICTIONARIES_KEY,
-  LEGACY_DICTIONARIES_KEY,
   loadDictionaryInventory,
   loadInitialDictionaries,
-  migrateLegacyDictionaries,
-  sanitizeCustomDictionaries,
   type Dictionary,
 } from "./dictionaries";
-import { writeLocalStorage } from "./persistence";
+import { createDictionaryPersistence, type DictionaryPersistenceSnapshot } from "./dictionary-persistence";
 
 export function useDictionaries() {
-  const [initialDictionaries, setInitialDictionaries] = useState<Dictionary[]>(
-    loadDictionaryInventory,
-  );
-  const [customDictionaries, setCustomDictionaries] = useState<Dictionary[]>([]);
+  const [initialDictionaries, setInitialDictionaries] = useState<Dictionary[]>(loadDictionaryInventory);
+  const [customDictionaries, updateCustomDictionaries] = useState<Dictionary[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
   const [storageError, setStorageError] = useState("");
+  const [canEdit, setCanEdit] = useState(false);
+  const [retry, setRetry] = useState(0);
+  const persistence = useRef<ReturnType<typeof createDictionaryPersistence> | null>(null);
+  const customRef = useRef<Dictionary[]>([]);
+
+  const applySnapshot = useCallback((snapshot: DictionaryPersistenceSnapshot) => {
+    customRef.current = snapshot.dictionaries;
+    updateCustomDictionaries(snapshot.dictionaries);
+    setCanEdit(snapshot.ready);
+    setStorageError(snapshot.loadError || snapshot.writeError);
+    setIsLoaded(true);
+    if (snapshot.initial.length) {
+      const byId = new Map(snapshot.initial.map((dictionary) => [dictionary.id, dictionary]));
+      setInitialDictionaries((current) => current.map((dictionary) => byId.get(dictionary.id) ?? dictionary));
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      let initial: Dictionary[] = [];
-      let custom: Dictionary[] = [];
-      let error = "";
       try {
-        const current = window.localStorage.getItem(CUSTOM_DICTIONARIES_KEY);
-        const legacy = window.localStorage.getItem(LEGACY_DICTIONARIES_KEY);
-        const stored = current ?? legacy;
-        const parsed = stored ? (JSON.parse(stored) as unknown) : [];
-        if (!current && legacy) initial = await loadInitialDictionaries();
-        custom = current
-          ? sanitizeCustomDictionaries(parsed)
-          : migrateLegacyDictionaries(parsed, initial);
-        if (!current && legacy) {
-          try {
-            window.localStorage.setItem(
-              CUSTOM_DICTIONARIES_KEY,
-              JSON.stringify(custom),
-            );
-            window.localStorage.removeItem(LEGACY_DICTIONARIES_KEY);
-          } catch {
-            error = "Les dictionnaires locaux migrés n’ont pas pu être enregistrés.";
-          }
-        }
+        const controller = createDictionaryPersistence(window.localStorage);
+        persistence.current = controller;
+        const snapshot = await controller.load({ isCurrent: () => !cancelled });
+        if (!cancelled) applySnapshot(snapshot);
       } catch {
-        error = "Les dictionnaires locaux n’ont pas pu être chargés.";
+        if (!cancelled) {
+          setStorageError("Les dictionnaires locaux n’ont pas pu être chargés.");
+          setCanEdit(false);
+          setIsLoaded(true);
+        }
       }
-      if (cancelled) return;
-      if (initial.length) {
-        const loadedById = new Map(
-          initial.map((dictionary) => [dictionary.id, dictionary]),
-        );
-        setInitialDictionaries((current) =>
-          current.map((dictionary) => loadedById.get(dictionary.id) ?? dictionary),
-        );
-      }
-      setCustomDictionaries(custom);
-      setStorageError(error);
-      setIsLoaded(true);
     }
     void load();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
+  }, [applySnapshot, retry]);
+
+  const setCustomDictionaries = useCallback((action: SetStateAction<Dictionary[]>) => {
+    if (!canEdit || !persistence.current) return;
+    const next = typeof action === "function" ? action(customRef.current) : action;
+    applySnapshot(persistence.current.save(next));
+  }, [applySnapshot, canEdit]);
+
+  const retryStorage = useCallback(() => {
+    if (canEdit && persistence.current) {
+      applySnapshot(persistence.current.save(customRef.current));
+      return;
+    }
+    setCanEdit(false);
+    setIsLoaded(false);
+    setRetry((current) => current + 1);
+  }, [applySnapshot, canEdit]);
+
+  const ensureDictionariesLoaded = useCallback(async (ids: string[]) => {
+    const loaded = await loadInitialDictionaries(Array.from(new Set(ids)));
+    const byId = new Map(loaded.map((dictionary) => [dictionary.id, dictionary]));
+    setInitialDictionaries((current) => current.map((dictionary) => byId.get(dictionary.id) ?? dictionary));
+    return loaded;
   }, []);
 
-  const ensureDictionariesLoaded = useCallback(
-    async (ids: string[]) => {
-      const requested = Array.from(new Set(ids));
-      const loaded = await loadInitialDictionaries(requested);
-      const loadedById = new Map(loaded.map((dictionary) => [dictionary.id, dictionary]));
-      setInitialDictionaries((current) =>
-        current.map((dictionary) => loadedById.get(dictionary.id) ?? dictionary),
-      );
-      return loaded;
-    },
-    [],
-  );
-
-  useEffect(() => {
-    if (!isLoaded) return;
-    const error = writeLocalStorage(
-      CUSTOM_DICTIONARIES_KEY,
-      JSON.stringify(customDictionaries),
-    ) ? "" : "Les dictionnaires locaux n’ont pas pu être enregistrés.";
-    const timeout = window.setTimeout(() => setStorageError(error), 0);
-    return () => window.clearTimeout(timeout);
-  }, [customDictionaries, isLoaded]);
-
-  const dictionaries = useMemo(
-    () => [...initialDictionaries, ...customDictionaries],
-    [initialDictionaries, customDictionaries],
-  );
-
-  return {
-    dictionaries,
-    customDictionaries,
-    setCustomDictionaries,
-    ensureDictionariesLoaded,
-    isLoaded,
-    storageError,
-  };
+  const dictionaries = useMemo(() => [...initialDictionaries, ...customDictionaries], [initialDictionaries, customDictionaries]);
+  return { dictionaries, customDictionaries, setCustomDictionaries, ensureDictionariesLoaded,
+    isLoaded, storageError, canEdit, retryStorage };
 }

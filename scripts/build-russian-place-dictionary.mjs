@@ -1,4 +1,5 @@
 import { readFile, writeFile } from "node:fs/promises";
+import { writeDictionaryInventory } from "./dictionary-inventory.mjs";
 import { DATASET_METADATA } from "./dataset-metadata.mjs";
 import { sourceSnapshot, snapshotProvenance } from "./source-snapshots.mjs";
 
@@ -110,5 +111,6 @@ await writeFile(
   new URL("../app/data/place-dictionaries.json", import.meta.url),
   `${JSON.stringify(dictionaries)}\n`,
 );
+await writeDictionaryInventory();
 
 console.log(`${DICTIONARY_ID}: ${words.length}`);

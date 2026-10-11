@@ -24,20 +24,15 @@ import {
   wordProbabilityScore,
 } from "./generator";
 import { useDictionaries } from "./use-dictionaries";
-import { writeLocalStorage } from "./persistence";
+import { readStoredFavorites } from "./persistence";
+import { useStoredCollection } from "./use-stored-collection";
+import { readStoredPresets, type Preset } from "./stored-presets";
 
 type SortMode = "random" | "alphabetical" | "probability";
 type DictionaryCategory = "first-names" | "words" | "places" | "nature";
 
 const FAVORITES_KEY = "atelier-des-mots:favorites:v1";
 const PRESETS_KEY = "atelier-des-mots:presets:v1";
-
-type Preset = {
-  id: string;
-  name: string;
-  config: GeneratorConfig;
-  dictionaryWeights: Record<string, number>;
-};
 
 type GenerationResponse = {
   id: number;
@@ -221,6 +216,8 @@ export default function Home() {
     ensureDictionariesLoaded,
     isLoaded: dictionariesLoaded,
     storageError,
+    canEdit: dictionariesEditable,
+    retryStorage,
   } = useDictionaries();
   const initialWeights = INITIAL_DICTIONARY_WEIGHTS;
   const initialPreparedModel = () => prepareModel([], INITIAL_CONFIG);
@@ -258,7 +255,8 @@ export default function Home() {
   const [sortInverted, setSortInverted] = useState(false);
   const [randomSeed, setRandomSeed] = useState(20260724);
   const [probeText, setProbeText] = useState("");
-  const [favorites, setFavorites] = useState<string[]>([]);
+  const { value: favorites, change: setFavorites, error: favoritesError, retry: retryFavorites } =
+    useStoredCollection(FAVORITES_KEY, readStoredFavorites);
   const [showFavorites, setShowFavorites] = useState(false);
   const [openSections, setOpenSections] = useState({
     source: true,
@@ -266,11 +264,11 @@ export default function Home() {
     series: true,
     constraints: true,
   });
-  const [presets, setPresets] = useState<Preset[]>([]);
+  const { value: presets, change: setPresets, error: presetsError, retry: retryPresets } =
+    useStoredCollection(PRESETS_KEY, readStoredPresets);
   const [selectedPresetId, setSelectedPresetId] = useState("");
   const [presetName, setPresetName] = useState("");
   const [hasGenerated, setHasGenerated] = useState(false);
-  const persistenceReady = useRef(false);
   const workerRef = useRef<Worker | null>(null);
   const requestIdRef = useRef(0);
   const workerModelKeyRef = useRef<string | null>(null);
@@ -288,57 +286,6 @@ export default function Home() {
     );
     return () => window.clearTimeout(timeout);
   }, [appliedSignature, dictionaries, dictionariesLoaded, initialWeights]);
-
-  useEffect(() => {
-    let storedFavorites: string[] = [];
-    let storedPresets: Preset[] = [];
-    let storageLoadFailed = false;
-    try {
-      const parsedFavorites = JSON.parse(
-        window.localStorage.getItem(FAVORITES_KEY) ?? "[]",
-      );
-      const parsedPresets = JSON.parse(
-        window.localStorage.getItem(PRESETS_KEY) ?? "[]",
-      );
-      if (Array.isArray(parsedFavorites)) {
-        storedFavorites = Array.from(
-          new Set(parsedFavorites.filter((word) => typeof word === "string" && word.length <= 60)),
-        ).slice(0, 300);
-      }
-      if (Array.isArray(parsedPresets)) storedPresets = parsedPresets.slice(0, 50);
-    } catch {
-      storageLoadFailed = true;
-    }
-    const timeout = window.setTimeout(() => {
-      setFavorites(storedFavorites);
-      setPresets(storedPresets);
-      if (storageLoadFailed) {
-        setMessage("Les favoris et préréglages locaux n’ont pas pu être chargés.");
-      }
-      persistenceReady.current = true;
-    }, 0);
-    return () => window.clearTimeout(timeout);
-  }, []);
-
-  useEffect(() => {
-    if (!persistenceReady.current) return;
-    if (!writeLocalStorage(FAVORITES_KEY, JSON.stringify(favorites.slice(0, 300)))) {
-      window.setTimeout(
-        () => setMessage("Le stockage local est plein : les favoris ne peuvent pas être enregistrés."),
-        0,
-      );
-    }
-  }, [favorites]);
-
-  useEffect(() => {
-    if (!persistenceReady.current) return;
-    if (!writeLocalStorage(PRESETS_KEY, JSON.stringify(presets.slice(0, 50)))) {
-      window.setTimeout(
-        () => setMessage("Le stockage local est plein : les préréglages ne peuvent pas être enregistrés."),
-        0,
-      );
-    }
-  }, [presets]);
 
   useEffect(() => {
     const worker = new Worker(new URL("./generator.worker.ts", import.meta.url), {
@@ -1171,17 +1118,19 @@ export default function Home() {
                 type="button"
                 onClick={() => setIsManaging((current) => !current)}
                 aria-expanded={isManaging}
+                disabled={!dictionariesLoaded}
               >
                 <span aria-hidden="true">＋</span>
                 {isManaging ? "Fermer la gestion" : "Gérer les dictionnaires"}
               </button>
 
-              {isManaging && dictionariesLoaded && (
+              {isManaging && dictionariesLoaded && (dictionariesEditable || customDictionaries.length > 0) && (
                 <DictionaryManager
                   key={managedDictionaryId}
                   dictionaries={dictionaries}
                   customDictionaries={customDictionaries}
                   selectedId={managedDictionaryId}
+                  readOnly={!dictionariesEditable}
                   onSelect={selectManagedDictionary}
                   onChange={setCustomDictionaries}
                   onDelete={deleteCustomDictionary}
@@ -1629,9 +1578,12 @@ export default function Home() {
                   <span aria-hidden="true">→</span>
                 </button>
               </div>
-              {(message || storageError) && (
+              {(message || storageError || favoritesError || presetsError) && (
                 <p className="status-message" role="status">
-                  {storageError || message}
+                  {[storageError, favoritesError && `Favoris : ${favoritesError}`, presetsError && `Préréglages : ${presetsError}`].filter(Boolean).join(" ") || message}
+                  {storageError && <button type="button" onClick={retryStorage}>Réessayer les dictionnaires</button>}
+                  {favoritesError && <button type="button" onClick={retryFavorites}>Réessayer les favoris</button>}
+                  {presetsError && <button type="button" onClick={retryPresets}>Réessayer les préréglages</button>}
                 </p>
               )}
               </div>

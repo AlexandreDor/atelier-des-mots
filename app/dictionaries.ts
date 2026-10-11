@@ -10,7 +10,8 @@ export type Dictionary = {
 };
 
 export type DictionaryExport = {
-  version: 1;
+  version: 2;
+  format: "atelier-des-mots:dictionary-backup";
   dictionaries: Dictionary[];
 };
 
@@ -158,7 +159,7 @@ export function isNatureDictionary(dictionary: Dictionary) {
   return dictionary.id.startsWith("fr-nature-");
 }
 
-export function normalizeDictionaryWords(words: unknown) {
+export function normalizeDictionaryWords(words: unknown, maximumLength = MAX_CUSTOM_DICTIONARY_WORD_LENGTH) {
   if (!Array.isArray(words)) return [];
   return Array.from(
     new Set(
@@ -168,7 +169,7 @@ export function normalizeDictionaryWords(words: unknown) {
         .filter(
           (word) =>
             word.length >= 2 &&
-            Array.from(word).length <= MAX_CUSTOM_DICTIONARY_WORD_LENGTH,
+            Array.from(word).length <= maximumLength,
         ),
     ),
   );
@@ -193,48 +194,44 @@ function prefixByCodeUnits(value: string, maximum: number) {
   return prefix;
 }
 
+// Reading historical storage must not apply limits introduced for new content.
 export function sanitizeCustomDictionaries(value: unknown) {
   if (!Array.isArray(value)) return [];
-  const seenIds = new Set<string>();
-  const seenNames = new Set<string>();
-  const sanitized: Dictionary[] = [];
-  let totalWords = 0;
+  return value.filter(validDictionary).filter(({ id, name }) =>
+    id.trim() && name.trim() &&
+    !INITIAL_DICTIONARY_IDS.has(id) && !REMOVED_DICTIONARY_IDS.has(id),
+  ).map(({ id, name, words }) => ({
+    id, name, words: words.filter((word): word is string => typeof word === "string"),
+  }));
+}
 
-  for (const candidate of value.slice(0, 100)) {
-    if (!validDictionary(candidate)) continue;
-    const id = candidate.id.trim();
-    const name = candidate.name.trim();
-    const normalizedName = name.toLocaleLowerCase("fr-FR");
-    if (
-      !id ||
-      !name ||
-      id.length > 120 ||
-      name.length > 100 ||
-      INITIAL_DICTIONARY_IDS.has(id) ||
-      REMOVED_DICTIONARY_IDS.has(id) ||
-      seenIds.has(id) ||
-      seenNames.has(normalizedName)
-    ) {
-      continue;
+export function readStoredDictionaries(value: unknown): Dictionary[] {
+  if (!Array.isArray(value)) throw new Error("La sauvegarde des dictionnaires est invalide.");
+  const ids = new Set<string>();
+  for (const candidate of value) {
+    if (!validDictionary(candidate) || !candidate.id.trim() || !candidate.name.trim() ||
+        candidate.words.some((word) => typeof word !== "string") || ids.has(candidate.id)) {
+      throw new Error("La sauvegarde contient un dictionnaire invalide ou un identifiant dupliqué.");
     }
-    if (
-      candidate.words.length > 100_000 ||
-      totalWords + candidate.words.length > 250_000
-    ) {
-      continue;
-    }
-    const words = normalizeDictionaryWords(candidate.words);
-    if (words.length > 100_000 || totalWords + words.length > 250_000) continue;
-    sanitized.push({
-      id,
-      name,
-      words,
-    });
-    totalWords += words.length;
-    seenIds.add(id);
-    seenNames.add(normalizedName);
+    ids.add(candidate.id);
   }
-  return sanitized;
+  return sanitizeCustomDictionaries(value);
+}
+
+export function isDictionaryBackup(value: unknown): value is DictionaryExport {
+  return Boolean(value && typeof value === "object" &&
+    (value as Partial<DictionaryExport>).version === 2 &&
+    (value as Partial<DictionaryExport>).format === "atelier-des-mots:dictionary-backup");
+}
+
+export function createDictionaryId(prefix: string, existingIds: Set<string>) {
+  const base = `${prefix}-${Date.now()}`;
+  let id = base;
+  let suffix = 2;
+  while (existingIds.has(id) || INITIAL_DICTIONARY_IDS.has(id) || REMOVED_DICTIONARY_IDS.has(id)) {
+    id = `${base}-${suffix++}`;
+  }
+  return id;
 }
 
 export function migrateLegacyDictionaries(
@@ -255,7 +252,9 @@ export function migrateLegacyDictionaries(
     const initial = initialDictionaries.find(({ id }) => id === candidate.id);
     if (!initial) return;
     const initialWords = new Set(initial.words.map(normalizeWord));
-    const additions = normalizeDictionaryWords(candidate.words).filter(
+    const additions = Array.from(new Set(candidate.words
+      .filter((word): word is string => typeof word === "string")
+      .map(normalizeWord).filter((word) => word.length >= 2))).filter(
       (word) => !initialWords.has(word),
     );
     if (!additions.length) return;
@@ -287,6 +286,7 @@ export function parseDictionaryImport(
     throw new Error("Le fichier dépasse la limite de 64 Mo.");
   }
   const parsed = JSON.parse(text) as unknown;
+  const backup = isDictionaryBackup(parsed);
   const raw = Array.isArray(parsed)
     ? parsed
     : parsed && typeof parsed === "object" && "dictionaries" in parsed
@@ -301,20 +301,22 @@ export function parseDictionaryImport(
     existingDictionaries.map(({ name }) => name.toLocaleLowerCase("fr-FR")),
   );
   const imported: Dictionary[] = [];
-  if (raw.length > 100) {
+  if (backup) readStoredDictionaries(raw);
+  if (!backup && raw.length > 100) {
     throw new Error("Un fichier peut contenir au maximum 100 dictionnaires.");
   }
   let totalWords = 0;
-  raw.forEach((candidate, index) => {
+  let rawWordCount = 0;
+  raw.forEach((candidate) => {
     if (!candidate || typeof candidate !== "object") return;
     const value = candidate as Partial<Dictionary>;
-    const name = typeof value.name === "string" ? value.name.trim() : "";
-    if (!name || name.length > 100 || !Array.isArray(value.words)) return;
-    if (value.words.length > 100_000) {
+    const name = typeof value.name === "string" ? (backup ? value.name : value.name.trim()) : "";
+    if (!name.trim() || (!backup && name.length > 100) || !Array.isArray(value.words)) return;
+    if (!backup && value.words.length > 100_000) {
       throw new Error(`« ${name} » dépasse la limite de 100 000 mots.`);
     }
     if (
-      value.words.some(
+      !backup && value.words.some(
         (word) =>
           typeof word === "string" &&
           Array.from(normalizeWord(word)).length >
@@ -325,11 +327,12 @@ export function parseDictionaryImport(
         `« ${name} » contient un mot de plus de ${MAX_CUSTOM_DICTIONARY_WORD_LENGTH} lettres.`,
       );
     }
-    if (totalWords + value.words.length > 250_000) {
+    rawWordCount += value.words.length;
+    if (!backup && rawWordCount > 250_000) {
       throw new Error("L’import dépasse la limite cumulée de 250 000 mots.");
     }
-    const words = normalizeDictionaryWords(value.words);
-    if (totalWords + words.length > 250_000) {
+    const words = backup ? [...value.words] : normalizeDictionaryWords(value.words);
+    if (!backup && totalWords + words.length > 250_000) {
       throw new Error(
         "L’import dépasse la limite cumulée de 250 000 mots après normalisation.",
       );
@@ -342,18 +345,16 @@ export function parseDictionaryImport(
       return;
     }
 
-    let id =
-      typeof value.id === "string" && value.id.trim().length <= 120
-        ? value.id.trim()
-        : `dictionnaire-importe-${Date.now()}-${index + 1}`;
-    if (INITIAL_DICTIONARY_IDS.has(id) || existingIds.has(id)) {
-      id = `dictionnaire-importe-${Date.now()}-${index + 1}`;
+    let id = typeof value.id === "string" && value.id.trim() &&
+      (backup || value.id.trim().length <= 120) ? (backup ? value.id : value.id.trim()) : "";
+    if (!id || INITIAL_DICTIONARY_IDS.has(id) || existingIds.has(id)) {
+      id = createDictionaryId("dictionnaire-importe", existingIds);
     }
     let resolvedName = name;
     let suffix = 2;
     while (existingNames.has(resolvedName.toLocaleLowerCase("fr-FR"))) {
       const label = ` (${suffix})`;
-      const shortenedName = prefixByCodeUnits(name, 100 - label.length);
+      const shortenedName = backup ? name : prefixByCodeUnits(name, 100 - label.length);
       resolvedName = `${shortenedName}${label}`;
       suffix += 1;
     }
@@ -369,11 +370,44 @@ export function parseDictionaryImport(
 }
 
 export function serializeDictionaryExport(dictionaries: Dictionary[]) {
-  const serialized = JSON.stringify({ version: 1, dictionaries });
+  readStoredDictionaries(dictionaries);
+  const payload: DictionaryExport = {
+    version: 2, format: "atelier-des-mots:dictionary-backup", dictionaries,
+  };
+  const serialized = JSON.stringify(payload);
   if (new TextEncoder().encode(serialized).byteLength > MAX_DICTIONARY_IMPORT_BYTES) {
     throw new Error("L’export dépasse la limite de 64 Mo et ne pourra pas être réimporté.");
   }
   return serialized;
+}
+
+export function editCustomDictionary(
+  selected: Dictionary,
+  nameInput: string,
+  wordsInput: string,
+  dictionaries: Dictionary[],
+): Dictionary {
+  const name = nameInput === selected.name ? selected.name : nameInput.trim();
+  if (!name.trim()) throw new Error("Le nom du dictionnaire ne peut pas être vide.");
+  if (name.length > Math.max(100, selected.name.length)) {
+    throw new Error("Le nom du dictionnaire est limité à 100 caractères.");
+  }
+  const historicalWords = new Set(selected.words.map(normalizeWord));
+  const rawWords = wordsInput.split(/[\n,;]+/);
+  if (rawWords.some((word) => {
+    const normalized = normalizeWord(word);
+    return Array.from(normalized).length > MAX_CUSTOM_DICTIONARY_WORD_LENGTH && !historicalWords.has(normalized);
+  })) throw new Error(`Chaque nouveau mot est limité à ${MAX_CUSTOM_DICTIONARY_WORD_LENGTH} lettres.`);
+  const words = wordsInput === selected.words.join("\n")
+    ? selected.words : normalizeDictionaryWords(rawWords, Infinity);
+  if (words.length > Math.max(100_000, selected.words.length)) {
+    throw new Error("Le dictionnaire est limité à 100 000 mots ; les mots historiques peuvent être conservés.");
+  }
+  const total = dictionaries.reduce((count, dictionary) => count + dictionary.words.length, 0);
+  if (total - selected.words.length + words.length > Math.max(250_000, total)) {
+    throw new Error("Les dictionnaires personnalisés sont limités à 250 000 mots cumulés.");
+  }
+  return { ...selected, name, words };
 }
 
 export function dictionaryFingerprint(dictionary: Dictionary) {

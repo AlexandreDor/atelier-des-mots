@@ -20,6 +20,14 @@ CC BY 4.0 sur la redistribution en ligne. Le détail est consigné dans
 `scripts/build-nature-dictionaries.mjs` reconstruit uniquement le corpus de
 minéraux à partir des pages alphabétiques de la liste.
 
+```bash
+node scripts/build-nature-dictionaries.mjs /chemin/absolu/mineral-pages
+```
+
+Le répertoire contient les réponses JSON de l’API Wikipédia, nommées
+`minerals-A.json`, `minerals-B.json`, etc., dont `parse.wikitext` contient
+le texte de chaque page alphabétique.
+
 ## Noms de lieux
 
 La route `/lieux` propose trois générateurs spécialisés :
@@ -110,9 +118,49 @@ empreinte a été calculée. Cette heure décrit la capture locale de l’entré
 build; elle ne prétend pas être sa date de téléchargement amont. Les dates
 historiques connues des corpus déjà intégrés restent documentées séparément.
 
+Chaque commande de reconstruction actualise aussi automatiquement
+`app/data/dictionary-inventory.json`, utilisé par `/licences`, depuis les
+fichiers des corpus actifs et suspendus. Les noms, volumes, licences et
+empreintes y reprennent exactement les métadonnées des corpus, sans rétablir
+les anciennes dates. Exécuter les reconstructions successivement lorsqu’elles
+modifient le même fichier de corpus.
+
+Pour vérifier la synchronisation sans modifier les données :
+
+```bash
+node scripts/dictionary-inventory.mjs --check
+```
+
+Après une modification manuelle des métadonnées,
+`node scripts/dictionary-inventory.mjs --write` régénère uniquement l’inventaire.
+Le script `scripts/apply-dataset-metadata.mjs` le met également à jour et
+préserve les empreintes et dates issues des reconstructions.
+
 Le générateur principal propose également un corpus de 3 337 noms de voies
 londoniennes extrait de Wikimedia Commons (CC BY-SA 4.0), dans le thème
 « Lieux ».
+
+## Données locales
+
+Les anciennes sauvegardes de dictionnaires, favoris et préréglages sont lues
+sans troncature. Les limites de 100 dictionnaires, 100 000 mots par liste,
+250 000 mots cumulés et 60 lettres par nouveau mot s’appliquent aux nouveaux
+imports et ajouts. Une liste historique plus grande reste consultable,
+exportable, renommable et réductible. De même, les limites de 300 favoris et
+50 préréglages empêchent de nouveaux ajouts sans réduire les collections
+existantes.
+
+L’export JSON utilise une sauvegarde identifiée de version 2, réimportable
+sans perdre les mots ou champs historiques dépassant ces limites. La limite
+de fichier de 64 Mo et la validation de sa structure restent applicables.
+Les imports usuels de version 1 et les tableaux de dictionnaires restent
+acceptés dans les limites des nouveaux imports.
+
+Une lecture invalide ou une migration interrompue n’autorise aucune écriture
+sur les données concernées. La migration conserve la sauvegarde v1 ; le bouton
+de reprise relit les données après un échec de chargement, ou réessaie les
+modifications en mémoire après un échec d’enregistrement. Les dictionnaires
+récupérés lors d’un échec de quota peuvent être exportés avant la reprise.
 
 ## Licences
 
@@ -222,7 +270,8 @@ actions tied to the current ChatGPT user. Leave public content anonymous.
 - `npm run dev`: start the Vite/Vinext development server
 - `npm run build`: build and validate the deployable Sites artifact
 - `npm run start`: start the built Vinext application
-- `npm test`: build, validate, and verify the rendered development-preview metadata
+- `npm test`: run generator, analysis, persistence, import and reconstruction tests, build, validate the artifact, and check rendered HTML and corpus metadata
+- `npm run check:datasets`: verify corpus inventory synchronization without writing data
 - `npm run validate:artifact`: recheck an existing artifact's manifest and ESM `default.fetch` export
 - `npm run db:generate`: generate Drizzle migrations after schema changes
 

@@ -3,20 +3,20 @@
 import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import {
   type Dictionary,
-  type DictionaryExport,
   MAX_DICTIONARY_IMPORT_BYTES,
-  MAX_CUSTOM_DICTIONARY_WORD_LENGTH,
-  normalizeDictionaryWords,
+  editCustomDictionary,
+  isDictionaryBackup,
+  createDictionaryId,
   parseDictionaryImport,
   serializeDictionaryExport,
 } from "./dictionaries";
 import { downloadTextFile } from "./download";
-import { normalizeWord } from "./generator";
 
 type DictionaryManagerProps = {
   dictionaries: Dictionary[];
   customDictionaries: Dictionary[];
   selectedId: string;
+  readOnly?: boolean;
   onSelect: (id: string) => void;
   onChange: (dictionaries: Dictionary[]) => void;
   onDelete: (id: string) => void;
@@ -27,6 +27,7 @@ export function DictionaryManager({
   dictionaries,
   customDictionaries,
   selectedId,
+  readOnly = false,
   onSelect,
   onChange,
   onDelete,
@@ -42,6 +43,7 @@ export function DictionaryManager({
 
   function createDictionary(event: FormEvent) {
     event.preventDefault();
+    if (readOnly) return;
     const name = newName.trim();
     if (!name) return;
     if (name.length > 100) {
@@ -63,7 +65,7 @@ export function DictionaryManager({
       return;
     }
     const dictionary = {
-      id: `dictionnaire-${Date.now()}`,
+      id: createDictionaryId("dictionnaire", new Set(dictionaries.map(({ id }) => id))),
       name,
       words: [],
     };
@@ -75,16 +77,15 @@ export function DictionaryManager({
 
   function saveDictionary(event: FormEvent) {
     event.preventDefault();
-    if (!selected) return;
-    const name = editedName.trim();
-    if (!name) {
-      onMessage("Le nom du dictionnaire ne peut pas être vide.");
+    if (!selected || readOnly) return;
+    let updated: Dictionary;
+    try {
+      updated = editCustomDictionary(selected, editedName, editedWords, customDictionaries);
+    } catch (error) {
+      onMessage(error instanceof Error ? error.message : "Les modifications sont invalides.");
       return;
     }
-    if (name.length > 100) {
-      onMessage("Le nom du dictionnaire est limité à 100 caractères.");
-      return;
-    }
+    const { name, words } = updated;
     if (
       dictionaries.some(
         (dictionary) =>
@@ -96,30 +97,8 @@ export function DictionaryManager({
       onMessage("Ce nom de dictionnaire existe déjà.");
       return;
     }
-    const rawWords = editedWords.split(/[\n,;]+/);
-    if (
-      rawWords.some(
-        (word) =>
-          Array.from(normalizeWord(word)).length >
-          MAX_CUSTOM_DICTIONARY_WORD_LENGTH,
-      )
-    ) {
-      onMessage(
-        `Chaque mot est limité à ${MAX_CUSTOM_DICTIONARY_WORD_LENGTH} lettres.`,
-      );
-      return;
-    }
-    const normalizedWords = normalizeDictionaryWords(rawWords);
-    const words = normalizedWords.slice(0, 100_000);
-    const otherWordCount = customDictionaries
-      .filter((dictionary) => dictionary.id !== selected.id)
-      .reduce((total, dictionary) => total + dictionary.words.length, 0);
-    if (otherWordCount + words.length > 250_000) {
-      onMessage("Les dictionnaires personnalisés sont limités à 250 000 mots cumulés.");
-      return;
-    }
     const nextDictionaries = customDictionaries.map((dictionary) =>
-        dictionary.id === selected.id ? { ...dictionary, name, words } : dictionary,
+        dictionary.id === selected.id ? updated : dictionary,
       );
     try {
       serializeDictionaryExport(nextDictionaries);
@@ -130,15 +109,11 @@ export function DictionaryManager({
       return;
     }
     onChange(nextDictionaries);
-    onMessage(
-      normalizedWords.length > words.length
-        ? `« ${name} » enregistré. La limite de 100 000 mots a été appliquée.`
-        : `« ${name} » enregistré avec ${words.length.toLocaleString("fr-FR")} mot${words.length > 1 ? "s" : ""}.`,
-    );
+    onMessage(`« ${name} » enregistré avec ${words.length.toLocaleString("fr-FR")} mot${words.length > 1 ? "s" : ""}.`);
   }
 
   function deleteDictionary() {
-    if (!selected || !window.confirm(`Supprimer « ${selected.name} » ?`)) return;
+    if (readOnly || !selected || !window.confirm(`Supprimer « ${selected.name} » ?`)) return;
     onDelete(selected.id);
   }
 
@@ -159,12 +134,14 @@ export function DictionaryManager({
   async function importDictionaries(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
-    if (!file) return;
+    if (!file || readOnly) return;
     try {
       if (file.size > MAX_DICTIONARY_IMPORT_BYTES) {
         throw new Error("Le fichier dépasse la limite de 64 Mo.");
       }
-      const imported = parseDictionaryImport(await file.text(), dictionaries);
+      const text = await file.text();
+      const restoringBackup = isDictionaryBackup(JSON.parse(text));
+      const imported = parseDictionaryImport(text, dictionaries);
       const currentWordCount = customDictionaries.reduce(
         (sum, dictionary) => sum + dictionary.words.length,
         0,
@@ -173,10 +150,10 @@ export function DictionaryManager({
         (sum, dictionary) => sum + dictionary.words.length,
         0,
       );
-      if (customDictionaries.length + imported.length > 100) {
+      if (!restoringBackup && customDictionaries.length + imported.length > 100) {
         throw new Error("La limite de 100 dictionnaires personnalisés est atteinte.");
       }
-      if (currentWordCount + addedWords > 250_000) {
+      if (!restoringBackup && currentWordCount + addedWords > Math.max(250_000, currentWordCount)) {
         throw new Error("Les dictionnaires personnalisés sont limités à 250 000 mots cumulés.");
       }
       const nextDictionaries = [...customDictionaries, ...imported];
@@ -198,14 +175,10 @@ export function DictionaryManager({
   }
 
   function exportDictionaries() {
-    const payload: DictionaryExport = {
-      version: 1,
-      dictionaries: customDictionaries,
-    };
     try {
       downloadTextFile(
         "atelier-des-mots-dictionnaires.json",
-        serializeDictionaryExport(payload.dictionaries),
+        serializeDictionaryExport(customDictionaries),
         "application/json",
       );
       onMessage(`${customDictionaries.length} dictionnaire(s) exporté(s).`);
@@ -218,6 +191,9 @@ export function DictionaryManager({
 
   return (
     <div className="dictionary-manager">
+      {readOnly && (
+        <p className="field-help">Exportez les dictionnaires récupérés avant de libérer de l’espace, puis réessayez leur enregistrement.</p>
+      )}
       <label htmlFor="managed-dictionary">Dictionnaire personnalisé</label>
       <select
         id="managed-dictionary"
@@ -239,20 +215,22 @@ export function DictionaryManager({
             id="edited-dictionary-name"
             className="manager-input"
             value={editedName}
+            readOnly={readOnly}
             onChange={(event) => setEditedName(event.target.value)}
           />
           <label htmlFor="edited-words">Mots, un par ligne</label>
           <textarea
             id="edited-words"
             value={editedWords}
+            readOnly={readOnly}
             onChange={(event) => setEditedWords(event.target.value)}
             placeholder="luciole\nvelours\ncascade"
             rows={7}
           />
-          <button type="submit" className="secondary-button">
+          <button type="submit" className="secondary-button" disabled={readOnly}>
             Enregistrer les modifications
           </button>
-          <button type="button" className="danger-button" onClick={deleteDictionary}>
+          <button type="button" className="danger-button" onClick={deleteDictionary} disabled={readOnly}>
             Supprimer ce dictionnaire
           </button>
         </form>
@@ -268,10 +246,11 @@ export function DictionaryManager({
           <input
             id="dictionary-name"
             value={newName}
+            disabled={readOnly}
             onChange={(event) => setNewName(event.target.value)}
             placeholder="Nom du dictionnaire"
           />
-          <button type="submit" aria-label="Créer le dictionnaire">Créer</button>
+          <button type="submit" aria-label="Créer le dictionnaire" disabled={readOnly}>Créer</button>
         </div>
       </form>
       <div className="dictionary-file-actions">
@@ -282,7 +261,7 @@ export function DictionaryManager({
           onChange={importDictionaries}
           hidden
         />
-        <button type="button" onClick={() => fileRef.current?.click()}>
+        <button type="button" onClick={() => fileRef.current?.click()} disabled={readOnly}>
           Importer JSON
         </button>
         <button

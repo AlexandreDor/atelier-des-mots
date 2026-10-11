@@ -189,8 +189,11 @@ test("les corpus distribués correspondent aux métadonnées de leur fichier", (
   for (const dictionary of dictionaries) {
     const manifestEntry = inventory.active.find(({ id }) => id === dictionary.id);
     assert.ok(manifestEntry, dictionary.id);
-    assert.equal(manifestEntry.wordCount, dictionary.words.length);
-    assert.equal(Object.hasOwn(manifestEntry, "words"), false);
+    const { words, ...metadata } = dictionary;
+    assert.deepEqual(manifestEntry, { ...metadata, wordCount: words.length }, dictionary.id);
   }
-  assert.equal(Object.hasOwn(inventory.suspended.find(({ id }) => id === "en-mots"), "words"), false);
+  assert.deepEqual(inventory.suspended, suspended.map(({ words, ...metadata }) => ({
+    ...metadata,
+    wordCount: metadata.wordCount ?? words?.length ?? 0,
+  })));
 });
