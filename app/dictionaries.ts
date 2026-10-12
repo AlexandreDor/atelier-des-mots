@@ -335,11 +335,21 @@ export function parseDictionaryImport(
   }
   let totalWords = 0;
   let rawWordCount = 0;
-  raw.forEach((candidate) => {
-    if (!candidate || typeof candidate !== "object") return;
+  raw.forEach((candidate, index) => {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+      throw new Error(`Le dictionnaire nº ${index + 1} est invalide. Aucun dictionnaire du fichier n’a été importé.`);
+    }
     const value = candidate as Partial<Dictionary>;
     const name = typeof value.name === "string" ? (backup ? value.name : value.name.trim()) : "";
-    if (!name.trim() || (!backup && name.length > 100) || !Array.isArray(value.words)) return;
+    if (!name.trim()) {
+      throw new Error(`Le nom du dictionnaire nº ${index + 1} est invalide. Aucun dictionnaire du fichier n’a été importé.`);
+    }
+    if (!backup && name.length > 100) {
+      throw new Error(`Le nom du dictionnaire nº ${index + 1} dépasse la limite de 100 caractères. Aucun dictionnaire du fichier n’a été importé.`);
+    }
+    if (!Array.isArray(value.words) || value.words.some((word) => typeof word !== "string")) {
+      throw new Error(`« ${name} » contient une liste de mots invalide. Aucun dictionnaire du fichier n’a été importé.`);
+    }
     if (!backup && value.words.length > 100_000) {
       throw new Error(`« ${name} » dépasse la limite de 100 000 mots.`);
     }

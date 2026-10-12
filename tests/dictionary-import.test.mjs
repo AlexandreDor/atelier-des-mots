@@ -132,6 +132,46 @@ test("unmarked imports still enforce new-content bounds", () => {
   assert.throws(() => parseDictionaryImport(" ".repeat(MAX_DICTIONARY_IMPORT_BYTES + 1), []), /64 Mo/u);
 });
 
+test("ordinary imports reject malformed entries instead of importing only the valid content", () => {
+  const valid = { id: "valid", name: "Valide", words: ["soleil"] };
+  const invalidEntries = [
+    null, [], "liste invalide", {},
+    { name: 42, words: ["lune"] },
+    { name: "   ", words: ["lune"] },
+    { name: "Sans liste", words: "lune" },
+    { name: "Mot invalide", words: ["lune", null] },
+    { name: "Mot invalide", words: ["lune", 42] },
+    { name: "Mot invalide", words: ["lune", {}] },
+  ];
+  for (const invalid of invalidEntries) {
+    for (const dictionaries of [[valid, invalid], [invalid, valid]]) {
+      for (const payload of [dictionaries, { dictionaries }]) {
+        assert.throws(
+          () => parseDictionaryImport(JSON.stringify(payload), []),
+          /invalide.*Aucun dictionnaire du fichier n’a été importé/u,
+        );
+      }
+    }
+  }
+});
+
+test("ordinary imports reject names over 100 characters and retain names at the limit", () => {
+  const valid = { id: "valid", name: "Valide", words: ["soleil"] };
+  const tooLong = { id: "long", name: "n".repeat(101), words: ["lune"] };
+  for (const dictionaries of [[valid, tooLong], [tooLong, valid]]) {
+    for (const payload of [dictionaries, { dictionaries }]) {
+      assert.throws(
+        () => parseDictionaryImport(JSON.stringify(payload), []),
+        /100 caractères.*Aucun dictionnaire du fichier n’a été importé/u,
+      );
+    }
+  }
+  const atLimit = { ...tooLong, name: "n".repeat(100) };
+  assert.deepEqual(parseDictionaryImport(JSON.stringify([
+    valid, { ...atLimit, name: `  ${atLimit.name}  ` },
+  ]), []), [valid, atLimit]);
+});
+
 test("historical long fields can be saved unchanged and words can be removed without truncation", () => {
   const dictionary = {
     id: "mine", name: "n".repeat(101),

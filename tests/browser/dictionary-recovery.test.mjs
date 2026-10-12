@@ -179,6 +179,44 @@ test("v1 file restore preserves historical fields and volumes through the manage
   assert.deepEqual(await page.evaluate((key) => JSON.parse(localStorage.getItem(key)), currentKey), restored);
 });
 
+test("ordinary file imports reject invalid entries without changing stored dictionaries", { timeout: 30000 }, async (t) => {
+  const page = await newPage(t);
+  const existing = { id: "existing", name: "Déjà présent", words: ["étoile"] };
+  const stored = JSON.stringify([existing]);
+  await page.addInitScript(({ key, stored }) => {
+    if (localStorage.getItem(key) === null) localStorage.setItem(key, stored);
+  }, { key: currentKey, stored });
+  await page.goto(origin);
+  await page.getByRole("button", { name: "Gérer les dictionnaires", exact: false }).click();
+  await expect(page.getByRole("button", { name: "Importer JSON", exact: true })).toBeEnabled();
+  const fileInput = page.locator('input[type="file"]');
+  const valid = { id: "new", name: "Nouvelle liste", words: ["soleil"] };
+  for (const [invalid, message] of [
+    [
+      { id: "long", name: "n".repeat(101), words: ["lune"] },
+      "Le nom du dictionnaire nº 2 dépasse la limite de 100 caractères. Aucun dictionnaire du fichier n’a été importé.",
+    ],
+    [
+      { id: "broken", name: "Corrompu", words: ["lune", null] },
+      "« Corrompu » contient une liste de mots invalide. Aucun dictionnaire du fichier n’a été importé.",
+    ],
+  ]) {
+    await fileInput.setInputFiles({
+      name: "import-invalide.json", mimeType: "application/json",
+      buffer: Buffer.from(JSON.stringify([valid, invalid])),
+    });
+    await expect(page.getByText(message, { exact: true })).toBeVisible();
+    assert.equal(await page.evaluate((key) => localStorage.getItem(key), currentKey), stored);
+    await expect(page.locator("#managed-dictionary option")).toHaveCount(2);
+  }
+  await fileInput.setInputFiles({
+    name: "import-valide.json", mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify([valid])),
+  });
+  await expect(page.getByText("1 dictionnaire et 1 mots importés.", { exact: true })).toBeVisible();
+  assert.deepEqual(await page.evaluate((key) => JSON.parse(localStorage.getItem(key)), currentKey), [existing, valid]);
+});
+
 test("analysis retries the failed asset and renders all six selected sources", { timeout: 30000 }, async (t) => {
   const page = await newPage(t);
   const requests = await failFirstAsset(page, "**/assets/dictionaries-primary-*.json");

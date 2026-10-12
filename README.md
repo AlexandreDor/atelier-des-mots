@@ -170,7 +170,9 @@ de 64 Mo et la validation de chaque dictionnaire restent applicables. Une
 sauvegarde invalide ou contenant un identifiant de corpus retiré est refusée
 explicitement, sans restauration partielle. Les tableaux de dictionnaires et
 les fichiers sans marqueur de sauvegarde restent soumis aux limites des nouveaux
-imports.
+imports. Si une entrée est malformée, contient des mots qui ne sont pas du texte
+ou dépasse une limite, le fichier entier est refusé avec une erreur explicite,
+sans importer une partie des listes.
 
 Une lecture invalide ou une migration interrompue n’autorise aucune écriture
 sur les données concernées. La migration conserve la sauvegarde v1 ; le bouton
