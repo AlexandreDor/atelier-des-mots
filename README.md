@@ -122,8 +122,19 @@ Chaque commande de reconstruction actualise aussi automatiquement
 `app/data/dictionary-inventory.json`, utilisé par `/licences`, depuis les
 fichiers des corpus actifs et suspendus. Les noms, volumes, licences et
 empreintes y reprennent exactement les métadonnées des corpus, sans rétablir
-les anciennes dates. Exécuter les reconstructions successivement lorsqu’elles
-modifient le même fichier de corpus.
+les anciennes dates. Les commandes peuvent être lancées en parallèle, y compris
+lorsqu’elles modifient le même fichier : la fusion avec les corpus les plus
+récents et la publication de l’inventaire partagent un verrou interprocessus
+`flock`. La préparation et le hachage des sources restent hors du verrou.
+
+La validation de tous les corpus précède leur publication. Chaque fichier JSON
+est préparé dans un fichier temporaire puis remplacé atomiquement, et l’inventaire
+est publié en dernier. La commande `--check` prend le même verrou pour éviter
+une lecture pendant la publication. L’attente du verrou est limitée à 30 secondes
+et un processus interrompu le libère automatiquement. Le fichier local
+`app/data/.dictionary-data.lock` est ignoré par Git ; ne pas le supprimer pendant
+une reconstruction. Si une interruption survient entre deux remplacements,
+`--check` détecte l’écart et `--write` permet de reconstruire l’inventaire.
 
 Pour vérifier la synchronisation sans modifier les données :
 

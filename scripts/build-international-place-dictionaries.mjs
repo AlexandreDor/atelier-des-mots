@@ -1,5 +1,5 @@
-import { readFile, writeFile } from "node:fs/promises";
-import { writeDictionaryInventory } from "./dictionary-inventory.mjs";
+import { readFile } from "node:fs/promises";
+import { updateDictionaryCorpora } from "./dictionary-inventory.mjs";
 import { DATASET_METADATA } from "./dataset-metadata.mjs";
 import { sourceSnapshot, snapshotProvenance } from "./source-snapshots.mjs";
 import {
@@ -107,14 +107,10 @@ function roadNames(values, kind, target, locale) {
   };
 }
 
-const [gbText, huText, esText, existingText] = await Promise.all([
+const [gbText, huText, esText] = await Promise.all([
   readFile(gbPath, "utf8"),
   readFile(huPath, "utf8"),
   readFile(esPath, "utf8"),
-  readFile(
-    new URL("../app/data/place-dictionaries.json", import.meta.url),
-    "utf8",
-  ),
 ]);
 
 const [huRoadCandidates, esRoadCandidates] = await Promise.all([
@@ -184,10 +180,6 @@ const internationalDictionaries = [
 ];
 
 const targets = new Set(internationalDictionaries.map(({ id }) => id));
-const existing = JSON.parse(existingText).filter(
-  ({ id }) => !targets.has(id),
-);
-const dictionaries = [...existing, ...internationalDictionaries];
 
 for (const dictionary of internationalDictionaries) {
   const expected =
@@ -221,11 +213,12 @@ for (const [id, audit] of [
   );
 }
 
-await writeFile(
-  new URL("../app/data/place-dictionaries.json", import.meta.url),
-  `${JSON.stringify(dictionaries)}\n`,
-);
-await writeDictionaryInventory();
+await updateDictionaryCorpora((collections) => ({
+  "place-dictionaries.json": [
+    ...collections["place-dictionaries.json"].filter(({ id }) => !targets.has(id)),
+    ...internationalDictionaries,
+  ],
+}));
 
 console.log(
   internationalDictionaries

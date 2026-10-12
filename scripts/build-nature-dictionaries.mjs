@@ -1,5 +1,5 @@
-import { readdir, readFile, writeFile } from "node:fs/promises";
-import { writeDictionaryInventory } from "./dictionary-inventory.mjs";
+import { readdir, readFile } from "node:fs/promises";
+import { updateDictionaryCorpora } from "./dictionary-inventory.mjs";
 import { DATASET_METADATA } from "./dataset-metadata.mjs";
 import { sourceSnapshot, snapshotProvenance } from "./source-snapshots.mjs";
 
@@ -95,10 +95,8 @@ const natureDictionaries = [
   },
 ];
 
-await writeFile(
-  new URL("../app/data/nature-dictionaries.json", import.meta.url),
-  `${JSON.stringify(natureDictionaries)}\n`,
-);
-await writeDictionaryInventory();
+await updateDictionaryCorpora(() => ({
+  "nature-dictionaries.json": natureDictionaries,
+}));
 
 console.log(`fr-nature-mineraux: ${minerals.length}`);

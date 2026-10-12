@@ -1,15 +1,17 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
+import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
 import {
   ACTIVE_DICTIONARY_FILES,
   assertDictionaryInventorySynchronized,
+  updateDictionaryCorpora,
   writeDictionaryInventory,
 } from "../scripts/dictionary-inventory.mjs";
 
@@ -235,4 +237,153 @@ test("l’inventaire refuse un lexique suspendu et les corpus dupliqués", async
   suspended[0].id = "fr-mots";
   await writeJson(file, suspended);
   await assert.rejects(writeDictionaryInventory(working.dataUrl), /Corpus dupliqué/u);
+});
+
+function startProcess(t, directory, args) {
+  const child = spawn(process.execPath, args, {
+    cwd: directory, stdio: ["ignore", "pipe", "pipe", "ipc"],
+  });
+  let stderr = "";
+  child.stderr.on("data", (chunk) => { stderr += chunk; });
+  child.stdout.resume();
+  const completed = new Promise((resolve) => {
+    child.once("error", (error) => resolve({ error }));
+    child.once("exit", (code, signal) => resolve({ code, signal }));
+  });
+  const messages = new Set();
+  const waiting = new Map();
+  child.on("message", (message) => {
+    messages.add(message);
+    waiting.get(message)?.();
+  });
+  t.after(async () => {
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    await completed;
+  });
+  return {
+    child,
+    completed,
+    message(expected) {
+      if (messages.has(expected)) return Promise.resolve();
+      return new Promise((resolve, reject) => {
+        waiting.set(expected, resolve);
+        void completed.then(() => {
+          if (!messages.has(expected)) reject(new Error(`Message absent : ${expected}. ${stderr}`));
+        });
+      });
+    },
+    async succeed() {
+      const result = await completed;
+      assert.equal(result.code, 0, result.error?.message || stderr || result.signal);
+    },
+  };
+}
+
+for (const sharedFile of [false, true]) {
+  test(`les publications concurrentes préservent ${sharedFile ? "les ajouts au même fichier" : "les volumes de fichiers distincts"}`, { timeout: 15000 }, async (t) => {
+    const working = await fixture(t);
+    const firstFile = "place-dictionaries.json";
+    const secondFile = sharedFile ? firstFile : "nature-dictionaries.json";
+    const moduleUrl = pathToFileURL(join(working.directory, "scripts", "dictionary-inventory.mjs")).href;
+    const code = (file, id, word, hold) => `
+      import { updateDictionaryCorpora } from ${JSON.stringify(moduleUrl)};
+      process.send("attempting");
+      await updateDictionaryCorpora(async (collections) => {
+        process.send("entered");
+        ${hold ? 'await new Promise((resolve) => process.once("message", resolve));' : ""}
+        return { ${JSON.stringify(file)}: collections[${JSON.stringify(file)}].map((dictionary) =>
+          dictionary.id === ${JSON.stringify(id)}
+            ? { ...dictionary, words: [...dictionary.words, ${JSON.stringify(word)}] }
+            : dictionary) };
+      });
+      process.disconnect();
+    `;
+    const first = startProcess(t, working.directory, ["--input-type=module", "--eval",
+      code(firstFile, "fr-lieux-villes", "Premier", true)]);
+    await first.message("entered");
+    const second = startProcess(t, working.directory, ["--input-type=module", "--eval",
+      code(secondFile, sharedFile ? "ru-lieux-localites-romanise" : "fr-nature-mineraux", "Second", false)]);
+    await second.message("attempting");
+    const entered = second.message("entered");
+    assert.equal(await Promise.race([entered.then(() => "entered"), delay(100, "waiting")]), "waiting");
+    first.child.send("release");
+    await Promise.all([first.succeed(), second.succeed()]);
+    const inventory = await assertInventoryMatchesCorpora(working);
+    assert.equal(inventory.active.find(({ id }) => id === "fr-lieux-villes").wordCount, 2);
+    assert.equal(inventory.active.find(({ id }) => id === (sharedFile ? "ru-lieux-localites-romanise" : "fr-nature-mineraux")).wordCount, 2);
+  });
+}
+
+test("les vrais scripts concurrents conservent les corpus reconstruits et leurs métadonnées", { timeout: 15000 }, async (t) => {
+  const working = await fixture(t);
+  const pages = join(working.directory, "minerals");
+  await mkdir(pages);
+  await writeJson(join(pages, "minerals-A.json"), {
+    parse: { wikitext: Array.from({ length: 501 }, (_, index) => `* [[${name(index, "Mineral")}]]`).join("\n") },
+  });
+  const source = await input(working.directory, "RU.txt", geoNames(5000));
+  const children = [
+    ["build-nature-dictionaries.mjs", pages],
+    ["build-russian-place-dictionary.mjs", source],
+    ["apply-dataset-metadata.mjs"],
+    ["dictionary-inventory.mjs", "--write"],
+  ].map(([script, ...args]) => startProcess(t, working.directory, [
+    join(working.directory, "scripts", script), ...args,
+  ]));
+  await Promise.all(children.map((child) => child.succeed()));
+  const inventory = await assertInventoryMatchesCorpora(working);
+  for (const [id, count] of [["fr-nature-mineraux", 501], ["ru-lieux-localites-romanise", 5000]]) {
+    const entry = inventory.active.find((dictionary) => dictionary.id === id);
+    assert.equal(entry.wordCount, count);
+    assert.equal(entry.sourceSnapshots.length, 1);
+  }
+});
+
+test("une mise à jour invalide ne publie aucun fichier et libère le verrou", async (t) => {
+  const working = await fixture(t);
+  const files = [...ACTIVE_DICTIONARY_FILES, "dictionary-inventory.json"];
+  const before = await Promise.all(files.map((file) => readFile(join(working.data, file), "utf8")));
+  await assert.rejects(updateDictionaryCorpora((collections) => ({
+    "dictionaries-primary.json": collections["dictionaries-primary.json"].map((dictionary) => ({ ...dictionary, name: "Nouveau nom" })),
+    "nature-dictionaries.json": collections["nature-dictionaries.json"].map((dictionary) => ({ ...dictionary, license: "" })),
+  }), working.dataUrl), /license manquant/u);
+  assert.deepEqual(await Promise.all(files.map((file) => readFile(join(working.data, file), "utf8"))), before);
+  await writeDictionaryInventory(working.dataUrl);
+  await assertInventoryMatchesCorpora(working);
+});
+
+test("les métadonnées incomplètes échouent avant toute publication", async (t) => {
+  const working = await fixture(t);
+  await writeJson(join(working.data, "nature-dictionaries.json"), []);
+  const files = [...ACTIVE_DICTIONARY_FILES, "dictionary-inventory.json"];
+  const before = await Promise.all(files.map((file) => readFile(join(working.data, file), "utf8")));
+  await assert.rejects(execute(process.execPath, [join(working.directory, "scripts", "apply-dataset-metadata.mjs")]), /Corpus absents : fr-nature-mineraux/u);
+  assert.deepEqual(await Promise.all(files.map((file) => readFile(join(working.data, file), "utf8"))), before);
+});
+
+test("la vérification attend une publication et un processus tué libère le verrou", { timeout: 15000 }, async (t) => {
+  const working = await fixture(t);
+  const moduleUrl = pathToFileURL(join(working.directory, "scripts", "dictionary-inventory.mjs")).href;
+  const holder = startProcess(t, working.directory, ["--input-type=module", "--eval", `
+    import { updateDictionaryCorpora } from ${JSON.stringify(moduleUrl)};
+    await updateDictionaryCorpora(async () => {
+      process.send("entered");
+      await new Promise((resolve) => process.once("message", resolve));
+      return {};
+    });
+    process.disconnect();
+  `]);
+  await holder.message("entered");
+  const check = startProcess(t, working.directory, ["--input-type=module", "--eval", `
+    import { assertDictionaryInventorySynchronized } from ${JSON.stringify(moduleUrl)};
+    process.send("attempting");
+    await assertDictionaryInventorySynchronized();
+    process.disconnect();
+  `]);
+  await check.message("attempting");
+  assert.equal(await Promise.race([check.completed.then(() => "finished"), delay(100, "waiting")]), "waiting");
+  holder.child.kill("SIGKILL");
+  await holder.completed;
+  await check.succeed();
+  await assertInventoryMatchesCorpora(working);
 });

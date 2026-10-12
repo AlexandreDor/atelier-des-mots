@@ -3,6 +3,7 @@ import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { isDeepStrictEqual } from "node:util";
+import { withDictionaryDataLock } from "./dictionary-data-lock.mjs";
 
 export const ACTIVE_DICTIONARY_FILES = [
   "dictionaries-primary.json",
@@ -37,13 +38,16 @@ function validateSnapshots(dictionary) {
 
 // Copy the corpus metadata itself: registry defaults must not replace the
 // provenance captured by a reconstruction.
-export async function buildDictionaryInventory(dataDirectory = DATA_DIRECTORY) {
+async function readDictionaryCollections(dataDirectory) {
   const files = [...ACTIVE_DICTIONARY_FILES, "suspended-dictionaries.json"];
-  const collections = await Promise.all(files.map(async (file) => {
+  return Object.fromEntries(await Promise.all(files.map(async (file) => {
     const dictionaries = JSON.parse(await readFile(new URL(file, dataDirectory), "utf8"));
     if (!Array.isArray(dictionaries)) throw new Error(`${file} : liste de corpus attendue`);
-    return dictionaries;
-  }));
+    return [file, dictionaries];
+  })));
+}
+
+function inventoryFromCollections(collections) {
   const seen = new Set();
   function validateMetadata(dictionary) {
     if (!dictionary || typeof dictionary !== "object" || Array.isArray(dictionary)) {
@@ -54,7 +58,7 @@ export async function buildDictionaryInventory(dataDirectory = DATA_DIRECTORY) {
     seen.add(dictionary.id);
     validateSnapshots(dictionary);
   }
-  const active = collections.slice(0, -1).flat().map((dictionary) => {
+  const active = ACTIVE_DICTIONARY_FILES.flatMap((file) => collections[file]).map((dictionary) => {
     validateMetadata(dictionary);
     requireStrings(dictionary, ["accessedAt", "transformations", "licenseReviewedAt"]);
     if (dictionary.status === "suspended") throw new Error(`${dictionary.id} : corpus suspendu dans les données actives`);
@@ -64,7 +68,7 @@ export async function buildDictionaryInventory(dataDirectory = DATA_DIRECTORY) {
     const { words, ...metadata } = dictionary;
     return { ...metadata, wordCount: words.length };
   });
-  const suspended = collections.at(-1).map((dictionary) => {
+  const suspended = collections["suspended-dictionaries.json"].map((dictionary) => {
     validateMetadata(dictionary);
     requireStrings(dictionary, ["suspensionReason"]);
     if (dictionary.status !== "suspended") throw new Error(`${dictionary.id} : statut suspendu attendu`);
@@ -79,25 +83,64 @@ export async function buildDictionaryInventory(dataDirectory = DATA_DIRECTORY) {
   return { active, suspended };
 }
 
-export async function writeDictionaryInventory(dataDirectory = DATA_DIRECTORY) {
-  const inventory = await buildDictionaryInventory(dataDirectory);
-  const target = new URL("dictionary-inventory.json", dataDirectory);
-  const temporary = new URL(`.dictionary-inventory-${randomUUID()}.tmp`, dataDirectory);
+async function publishJsonFiles(files, dataDirectory) {
+  const staged = [];
   try {
-    await writeFile(temporary, `${JSON.stringify(inventory)}\n`, { flag: "wx" });
-    await rename(temporary, target);
+    // Stage everything before replacing a corpus. Readers never see truncated
+    // JSON, and validation/serialization failures leave the previous files intact.
+    for (const [file, value] of Object.entries(files)) {
+      const target = new URL(file, dataDirectory);
+      const temporary = new URL(`.${file}-${randomUUID()}.tmp`, dataDirectory);
+      staged.push({ target, temporary });
+      await writeFile(temporary, `${JSON.stringify(value)}\n`, { flag: "wx" });
+    }
+    for (const { target, temporary } of staged) await rename(temporary, target);
   } finally {
-    await rm(temporary, { force: true });
+    await Promise.all(staged.map(({ temporary }) => rm(temporary, { force: true })));
   }
-  return inventory;
+}
+
+// Compute source-derived words outside the lock, then merge them into the most
+// recent corpus here. Locking only inventory publication would still lose other
+// builders' changes to a shared file and allow stale inventory snapshots.
+export async function updateDictionaryCorpora(update, dataDirectory = DATA_DIRECTORY) {
+  return withDictionaryDataLock(async () => {
+    const collections = await readDictionaryCollections(dataDirectory);
+    const updated = await update(collections);
+    for (const [file, dictionaries] of Object.entries(updated)) {
+      if (!ACTIVE_DICTIONARY_FILES.includes(file)) {
+        throw new Error(`Mise à jour de corpus invalide : ${file}`);
+      }
+      if (!Array.isArray(dictionaries)) throw new Error(`${file} : liste de corpus attendue`);
+      collections[file] = dictionaries;
+    }
+    const inventory = inventoryFromCollections(collections);
+    await publishJsonFiles({ ...updated, "dictionary-inventory.json": inventory }, dataDirectory);
+    return updated;
+  }, dataDirectory);
+}
+
+export async function buildDictionaryInventory(dataDirectory = DATA_DIRECTORY) {
+  return withDictionaryDataLock(async () =>
+    inventoryFromCollections(await readDictionaryCollections(dataDirectory)), dataDirectory);
+}
+
+export async function writeDictionaryInventory(dataDirectory = DATA_DIRECTORY) {
+  return withDictionaryDataLock(async () => {
+    const inventory = inventoryFromCollections(await readDictionaryCollections(dataDirectory));
+    await publishJsonFiles({ "dictionary-inventory.json": inventory }, dataDirectory);
+    return inventory;
+  }, dataDirectory);
 }
 
 export async function assertDictionaryInventorySynchronized(dataDirectory = DATA_DIRECTORY) {
-  const expected = await buildDictionaryInventory(dataDirectory);
-  const actual = JSON.parse(await readFile(new URL("dictionary-inventory.json", dataDirectory), "utf8"));
-  if (!isDeepStrictEqual(actual, expected)) {
-    throw new Error("dictionary-inventory.json désynchronisé : relancer la reconstruction ou node scripts/dictionary-inventory.mjs --write");
-  }
+  return withDictionaryDataLock(async () => {
+    const expected = inventoryFromCollections(await readDictionaryCollections(dataDirectory));
+    const actual = JSON.parse(await readFile(new URL("dictionary-inventory.json", dataDirectory), "utf8"));
+    if (!isDeepStrictEqual(actual, expected)) {
+      throw new Error("dictionary-inventory.json désynchronisé : relancer la reconstruction ou node scripts/dictionary-inventory.mjs --write");
+    }
+  }, dataDirectory);
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {

@@ -1,5 +1,5 @@
-import { readFile, writeFile } from "node:fs/promises";
-import { writeDictionaryInventory } from "./dictionary-inventory.mjs";
+import { readFile } from "node:fs/promises";
+import { updateDictionaryCorpora } from "./dictionary-inventory.mjs";
 import { DATASET_METADATA } from "./dataset-metadata.mjs";
 import { sourceSnapshot, snapshotProvenance } from "./source-snapshots.mjs";
 import {
@@ -89,15 +89,11 @@ function requireMinimum(id, names, target) {
   return names;
 }
 
-const [communesText, geonamesText, fleuvesHtml, existingText] =
+const [communesText, geonamesText, fleuvesHtml] =
   await Promise.all([
     readFile(communesPath, "utf8"),
     readFile(geonamesPath, "utf8"),
     readFile(fleuvesHtmlPath, "utf8"),
-    readFile(
-      new URL("../app/data/place-dictionaries.json", import.meta.url),
-      "utf8",
-    ),
   ]);
 
 const communes = JSON.parse(communesText).filter(
@@ -216,10 +212,6 @@ const frenchDictionaries = [
 ];
 
 const targets = new Set(frenchDictionaries.map(({ id }) => id));
-const existing = JSON.parse(existingText).filter(
-  ({ id }) => !targets.has(id),
-);
-const placeDictionaries = [...frenchDictionaries, ...existing];
 
 const expectedById = new Map([
   ["fr-lieux-villes", TARGET_COUNTS.cities],
@@ -247,11 +239,12 @@ logAudit("fr-lieux-forets", forestClean.stats, forestNames);
 logAudit("fr-lieux-montagnes", mountainClean.stats, mountainNames);
 logAudit("fr-lieux-plages", beachClean.stats, beachNames);
 
-await writeFile(
-  new URL("../app/data/place-dictionaries.json", import.meta.url),
-  `${JSON.stringify(placeDictionaries)}\n`,
-);
-await writeDictionaryInventory();
+const { "place-dictionaries.json": placeDictionaries } = await updateDictionaryCorpora((collections) => ({
+  "place-dictionaries.json": [
+    ...frenchDictionaries,
+    ...collections["place-dictionaries.json"].filter(({ id }) => !targets.has(id)),
+  ],
+}));
 
 const total = placeDictionaries.reduce(
   (sum, dictionary) => sum + dictionary.words.length,
