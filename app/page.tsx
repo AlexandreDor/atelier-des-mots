@@ -5,7 +5,6 @@ import Link from "next/link";
 import { DictionaryManager } from "./dictionary-manager";
 import {
   dictionaryFingerprint,
-  INITIAL_DICTIONARIES,
   isFirstNameDictionary,
   isNatureDictionary,
   isPlaceDictionary,
@@ -25,6 +24,9 @@ import {
   wordProbabilityScore,
 } from "./generator";
 import { useDictionaries } from "./use-dictionaries";
+import { readStoredFavorites } from "./persistence";
+import { useStoredCollection } from "./use-stored-collection";
+import { readStoredPresets, type Preset } from "./stored-presets";
 
 type SortMode = "random" | "alphabetical" | "probability";
 type DictionaryCategory = "first-names" | "words" | "places" | "nature";
@@ -32,16 +34,9 @@ type DictionaryCategory = "first-names" | "words" | "places" | "nature";
 const FAVORITES_KEY = "atelier-des-mots:favorites:v1";
 const PRESETS_KEY = "atelier-des-mots:presets:v1";
 
-type Preset = {
-  id: string;
-  name: string;
-  config: GeneratorConfig;
-  dictionaryWeights: Record<string, number>;
-};
-
 type GenerationResponse = {
   id: number;
-  model: PreparedModel;
+  model?: PreparedModel;
   words: string[];
 };
 
@@ -56,6 +51,8 @@ const DICTIONARY_LANGUAGE_ORDER = [
   "ru-romanise",
   "de",
 ] as const;
+const DEFAULT_DICTIONARY_ID = "fr-prenoms";
+const INITIAL_DICTIONARY_WEIGHTS = { [DEFAULT_DICTIONARY_ID]: 1 };
 const INITIAL_CONFIG: GeneratorConfig = {
   algorithm: "markov",
   order: 2,
@@ -83,18 +80,6 @@ function randomInteger(minimum: number, maximum: number) {
 function normalizeGenerationCount(value: number) {
   return Math.min(300, Math.max(3, Math.round(value / 3) * 3));
 }
-
-const INITIAL_RESULTS = [
-  "brumelle",
-  "sorvain",
-  "clérine",
-  "florance",
-  "mirelon",
-  "aubrel",
-  "valinette",
-  "doréane",
-  "sermique",
-];
 
 function randomRank(word: string, seed: number) {
   let hash = seed || 1;
@@ -184,6 +169,21 @@ function modelSignature(
   });
 }
 
+function sourceSignature(sources: WeightedSource[]) {
+  return JSON.stringify(
+    sources.map((source) => [
+      source.id,
+      source.name,
+      source.weight,
+      dictionaryFingerprint(source),
+    ]),
+  );
+}
+
+function touchWorkerSourceKey(keys: string[], key: string) {
+  return [...keys.filter((candidate) => candidate !== key), key].slice(-8);
+}
+
 function algorithmLabel(algorithm: Algorithm) {
   if (algorithm === "interpolated") return "Markov interpolé";
   if (algorithm === "phonetic") return "Modèle phonétique";
@@ -208,23 +208,19 @@ function dictionarySortRank(dictionary: Dictionary) {
   return rank === -1 ? DICTIONARY_LANGUAGE_ORDER.length : rank;
 }
 
-const DEFAULT_DICTIONARY =
-  INITIAL_DICTIONARIES.find(isFirstNameDictionary) ?? INITIAL_DICTIONARIES[0];
-
 export default function Home() {
   const {
     dictionaries,
     customDictionaries,
     setCustomDictionaries,
+    ensureDictionariesLoaded,
     isLoaded: dictionariesLoaded,
     storageError,
+    canEdit: dictionariesEditable,
+    retryStorage,
   } = useDictionaries();
-  const initialWeights = { [DEFAULT_DICTIONARY.id]: 1 };
-  const initialPreparedModel = () =>
-    prepareModel(
-      selectedSources(INITIAL_DICTIONARIES, initialWeights),
-      INITIAL_CONFIG,
-    );
+  const initialWeights = INITIAL_DICTIONARY_WEIGHTS;
+  const initialPreparedModel = () => prepareModel([], INITIAL_CONFIG);
   const [managedDictionaryId, setManagedDictionaryId] = useState("");
   const [dictionaryCategory, setDictionaryCategory] =
     useState<DictionaryCategory>("first-names");
@@ -249,14 +245,8 @@ export default function Home() {
     useState<GeneratorConfig>(INITIAL_CONFIG);
   const [activeModel, setActiveModel] =
     useState<PreparedModel>(initialPreparedModel);
-  const [appliedSignature, setAppliedSignature] = useState(() =>
-    configurationSignature(
-      INITIAL_CONFIG,
-      INITIAL_DICTIONARIES,
-      initialWeights,
-    ),
-  );
-  const [results, setResults] = useState(INITIAL_RESULTS);
+  const [appliedSignature, setAppliedSignature] = useState("");
+  const [results, setResults] = useState<string[]>([]);
   const [isManaging, setIsManaging] = useState(false);
   const [message, setMessage] = useState("");
   const [copiedWord, setCopiedWord] = useState<string | null>(null);
@@ -265,7 +255,8 @@ export default function Home() {
   const [sortInverted, setSortInverted] = useState(false);
   const [randomSeed, setRandomSeed] = useState(20260724);
   const [probeText, setProbeText] = useState("");
-  const [favorites, setFavorites] = useState<string[]>([]);
+  const { value: favorites, change: setFavorites, error: favoritesError, retry: retryFavorites } =
+    useStoredCollection(FAVORITES_KEY, readStoredFavorites);
   const [showFavorites, setShowFavorites] = useState(false);
   const [openSections, setOpenSections] = useState({
     source: true,
@@ -273,51 +264,28 @@ export default function Home() {
     series: true,
     constraints: true,
   });
-  const [presets, setPresets] = useState<Preset[]>([]);
+  const { value: presets, change: setPresets, error: presetsError, retry: retryPresets } =
+    useStoredCollection(PRESETS_KEY, readStoredPresets);
   const [selectedPresetId, setSelectedPresetId] = useState("");
   const [presetName, setPresetName] = useState("");
   const [hasGenerated, setHasGenerated] = useState(false);
-  const persistenceReady = useRef(false);
   const workerRef = useRef<Worker | null>(null);
   const requestIdRef = useRef(0);
+  const workerModelKeyRef = useRef<string | null>(null);
+  const workerSourceKeysRef = useRef<string[]>([]);
   const revealFrameRef = useRef<number | null>(null);
 
   useEffect(() => {
-    let storedFavorites: string[] = [];
-    let storedPresets: Preset[] = [];
-    try {
-      const parsedFavorites = JSON.parse(
-        window.localStorage.getItem(FAVORITES_KEY) ?? "[]",
-      );
-      const parsedPresets = JSON.parse(
-        window.localStorage.getItem(PRESETS_KEY) ?? "[]",
-      );
-      if (Array.isArray(parsedFavorites)) {
-        storedFavorites = Array.from(
-          new Set(parsedFavorites.filter((word) => typeof word === "string")),
-        );
-      }
-      if (Array.isArray(parsedPresets)) storedPresets = parsedPresets;
-    } catch {
-      // Keep a clean local collection when stored data cannot be read.
-    }
-    const timeout = window.setTimeout(() => {
-      setFavorites(storedFavorites);
-      setPresets(storedPresets);
-      persistenceReady.current = true;
-    }, 0);
+    if (!dictionariesLoaded || appliedSignature) return;
+    const timeout = window.setTimeout(
+      () =>
+        setAppliedSignature(
+          configurationSignature(INITIAL_CONFIG, dictionaries, initialWeights),
+        ),
+      0,
+    );
     return () => window.clearTimeout(timeout);
-  }, []);
-
-  useEffect(() => {
-    if (!persistenceReady.current) return;
-    window.localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites));
-  }, [favorites]);
-
-  useEffect(() => {
-    if (!persistenceReady.current) return;
-    window.localStorage.setItem(PRESETS_KEY, JSON.stringify(presets));
-  }, [presets]);
+  }, [appliedSignature, dictionaries, dictionariesLoaded, initialWeights]);
 
   useEffect(() => {
     const worker = new Worker(new URL("./generator.worker.ts", import.meta.url), {
@@ -359,10 +327,17 @@ export default function Home() {
   const selectedWordCount = selectedSources(
     dictionaries,
     dictionaryWeights,
-  ).reduce((sum, source) => sum + source.words.length, 0);
+  ).reduce(
+    (sum, source) =>
+      sum +
+      (dictionaries.find((dictionary) => dictionary.id === source.id)?.wordCount ??
+        source.words.length),
+    0,
+  );
   const hasPendingChanges =
+    dictionariesLoaded &&
     configurationSignature(draftConfig, dictionaries, dictionaryWeights) !==
-    appliedSignature;
+      appliedSignature;
   const nextDistribution = useMemo(
     () => nextCharacterDistribution(activeModel, activeConfig, probeText),
     [activeModel, activeConfig, probeText],
@@ -525,9 +500,11 @@ export default function Home() {
   ) {
     const id = ++requestIdRef.current;
     const modelKey = modelSignature(config, sources);
-    const finish = (prepared: PreparedModel, next: string[]) => {
+    const sourceKey = sourceSignature(sources);
+    const includeSources = !workerSourceKeysRef.current.includes(sourceKey);
+    const finish = (prepared: PreparedModel | undefined, next: string[]) => {
       setActiveConfig(config);
-      setActiveModel(prepared);
+      if (prepared) setActiveModel(prepared);
       setAppliedSignature(appliedSignatureValue);
       setRandomSeed(seedNumber(config.seed));
       setLastUsedSeed(config.seed);
@@ -536,7 +513,7 @@ export default function Home() {
         setMessage(
           next.length < config.count
             ? `${next.length} mots uniques trouvés. Élargissez les longueurs pour en obtenir davantage.`
-            : "",
+            : `${next.length} mots générés.`,
         );
         setIsGenerating(false);
       });
@@ -551,30 +528,72 @@ export default function Home() {
 
     worker.onmessage = (event: MessageEvent<GenerationResponse>) => {
       if (event.data.id !== id) return;
+      workerSourceKeysRef.current = touchWorkerSourceKey(
+        workerSourceKeysRef.current,
+        sourceKey,
+      );
+      if (event.data.model) workerModelKeyRef.current = modelKey;
       finish(event.data.model, event.data.words);
     };
     worker.onerror = () => {
+      worker.terminate();
+      if (workerRef.current === worker) {
+        workerRef.current = null;
+        workerSourceKeysRef.current = [];
+        workerModelKeyRef.current = null;
+      }
       const prepared = prepareModel(sources, config);
       finish(prepared, generateBatch(prepared, config));
     };
-    worker.postMessage({ id, modelKey, sources, config });
+    try {
+      worker.postMessage({
+        id,
+        modelKey,
+        sourceKey,
+        includeModel: workerModelKeyRef.current !== modelKey,
+        sources: includeSources ? sources : undefined,
+        config,
+      });
+    } catch {
+      workerSourceKeysRef.current = [];
+      const prepared = prepareModel(sources, config);
+      finish(prepared, generateBatch(prepared, config));
+    }
   }
 
-  function runGeneration() {
-    const sources = selectedSources(dictionaries, dictionaryWeights);
+  async function runGeneration() {
+    let sources = selectedSources(dictionaries, dictionaryWeights);
     if (!sources.length) {
       setMessage("Sélectionnez au moins un dictionnaire.");
       return;
     }
+    setIsGenerating(true);
+    setMessage("");
+    let appliedDictionaries = dictionaries;
+    try {
+      const loadedSources = await ensureDictionariesLoaded(
+        sources.map((source) => source.id),
+      );
+      const loadedById = new Map(
+        loadedSources.map((dictionary) => [dictionary.id, dictionary]),
+      );
+      appliedDictionaries = dictionaries.map(
+        (dictionary) => loadedById.get(dictionary.id) ?? dictionary,
+      );
+      sources = selectedSources(appliedDictionaries, dictionaryWeights);
+    } catch {
+      setIsGenerating(false);
+      setMessage("Les corpus sélectionnés n’ont pas pu être chargés.");
+      return;
+    }
     if (!sources.some((source) => source.words.length)) {
+      setIsGenerating(false);
       setMessage("Ajoutez quelques mots avant de lancer la génération.");
       setIsManaging(true);
       return;
     }
 
-    setIsGenerating(true);
     setHasGenerated(true);
-    setMessage("");
     const resolvedConfig = {
       ...draftConfig,
       seed: draftConfig.seed || createGenerationSeed(),
@@ -582,7 +601,7 @@ export default function Home() {
     requestGeneration(
       sources,
       resolvedConfig,
-      configurationSignature(draftConfig, dictionaries, dictionaryWeights),
+      configurationSignature(draftConfig, appliedDictionaries, dictionaryWeights),
     );
   }
 
@@ -722,6 +741,10 @@ export default function Home() {
   }
 
   function toggleFavorite(word: string) {
+    if (!favorites.includes(word) && favorites.length >= 300) {
+      setMessage("La limite de 300 favoris est atteinte.");
+      return;
+    }
     setFavorites((current) =>
       current.includes(word)
         ? current.filter((favorite) => favorite !== word)
@@ -730,6 +753,10 @@ export default function Home() {
   }
 
   function savePreset() {
+    if (presets.length >= 50) {
+      setMessage("La limite de 50 préréglages est atteinte.");
+      return;
+    }
     const name =
       presetName.trim() || `Préréglage ${presets.length + 1}`;
     const preset: Preset = {
@@ -805,7 +832,9 @@ export default function Home() {
     setDictionaryWeights((current) => {
       const next = { ...current };
       delete next[id];
-      return Object.keys(next).length ? next : { [DEFAULT_DICTIONARY.id]: 1 };
+      return Object.keys(next).length
+        ? next
+        : { [DEFAULT_DICTIONARY_ID]: 1 };
     });
     setManagedDictionaryId("");
     setMessage(`« ${deleted?.name ?? "Dictionnaire"} » supprimé.`);
@@ -979,7 +1008,14 @@ export default function Home() {
                         aria-controls={`dictionary-list-${group.id}`}
                         className={isActive ? "is-active" : ""}
                         onClick={() =>
-                          setDictionaryCategory(group.id as DictionaryCategory)
+                          {
+                            setDictionaryCategory(group.id as DictionaryCategory);
+                            void ensureDictionariesLoaded(
+                              group.dictionaries.map(({ id }) => id),
+                            ).catch(() =>
+                              setMessage("Les corpus de cette catégorie n’ont pas pu être chargés."),
+                            );
+                          }
                         }
                         key={group.id}
                       >
@@ -1006,6 +1042,9 @@ export default function Home() {
                     </button>
                   </div>
                 </div>
+                {!dictionariesLoaded && (
+                  <p role="status">Chargement des corpus…</p>
+                )}
                 <section
                   className="dictionary-group"
                   id={`dictionary-list-${activeDictionaryGroup.id}`}
@@ -1033,7 +1072,7 @@ export default function Home() {
                           <span>
                             <strong>{dictionary.name}</strong>
                             <small>
-                              {dictionary.words.length.toLocaleString("fr-FR")} mots
+                              {(dictionary.wordCount ?? dictionary.words.length).toLocaleString("fr-FR")} mots
                             </small>
                           </span>
                         </label>
@@ -1079,17 +1118,19 @@ export default function Home() {
                 type="button"
                 onClick={() => setIsManaging((current) => !current)}
                 aria-expanded={isManaging}
+                disabled={!dictionariesLoaded}
               >
                 <span aria-hidden="true">＋</span>
                 {isManaging ? "Fermer la gestion" : "Gérer les dictionnaires"}
               </button>
 
-              {isManaging && dictionariesLoaded && (
+              {isManaging && dictionariesLoaded && (dictionariesEditable || customDictionaries.length > 0) && (
                 <DictionaryManager
                   key={managedDictionaryId}
                   dictionaries={dictionaries}
                   customDictionaries={customDictionaries}
                   selectedId={managedDictionaryId}
+                  readOnly={!dictionariesEditable}
                   onSelect={selectManagedDictionary}
                   onChange={setCustomDictionaries}
                   onDelete={deleteCustomDictionary}
@@ -1516,26 +1557,33 @@ export default function Home() {
                   role="status"
                 >
                   <span aria-hidden="true" />
-                  {hasPendingChanges
-                    ? "Modifications en attente"
-                    : "Paramètres appliqués"}
+                  {!hasGenerated
+                    ? "Prêt à générer"
+                    : hasPendingChanges
+                      ? "Modifications en attente"
+                      : "Paramètres appliqués"}
                 </div>
                 <button
                   className="generate-button"
                   type="button"
                   onClick={runGeneration}
-                  disabled={isGenerating}
+                  disabled={isGenerating || !dictionariesLoaded}
                 >
                   <span aria-hidden="true">✦</span>
-                  {isGenerating
+                  {!dictionariesLoaded
+                    ? "Chargement des sources…"
+                    : isGenerating
                     ? "Analyse en cours…"
                     : `Appliquer et générer ${count} mots`}
                   <span aria-hidden="true">→</span>
                 </button>
               </div>
-              {(message || storageError) && (
+              {(message || storageError || favoritesError || presetsError) && (
                 <p className="status-message" role="status">
-                  {storageError || message}
+                  {[storageError, favoritesError && `Favoris : ${favoritesError}`, presetsError && `Préréglages : ${presetsError}`].filter(Boolean).join(" ") || message}
+                  {storageError && <button type="button" onClick={retryStorage}>Réessayer les dictionnaires</button>}
+                  {favoritesError && <button type="button" onClick={retryFavorites}>Réessayer les favoris</button>}
+                  {presetsError && <button type="button" onClick={retryPresets}>Réessayer les préréglages</button>}
                 </p>
               )}
               </div>
@@ -1544,7 +1592,6 @@ export default function Home() {
 
           <section
             className={`results-panel ${isGenerating ? "is-generating" : ""}`}
-            aria-live="polite"
             aria-busy={isGenerating}
           >
             <div className="results-header">
@@ -1555,7 +1602,7 @@ export default function Home() {
                   {activeConfig.algorithm !== "syllabic"
                     ? ` · contexte ${activeConfig.order}`
                     : ""}
-                  {` · ${activeModel.sourceCount} source${activeModel.sourceCount > 1 ? "s" : ""}`}
+                  {` · ${hasGenerated ? activeModel.sourceCount : selectedCount} source${(hasGenerated ? activeModel.sourceCount : selectedCount) > 1 ? "s" : ""}`}
                 </span>
               </div>
               <div className="result-actions">
@@ -1703,14 +1750,20 @@ export default function Home() {
                   </div>
                 ))}
               </div>
-            ) : (
+            ) : hasGenerated ? (
               <div className="empty-state">
                 <span aria-hidden="true">Aa</span>
                 <p>Aucun mot n’a pu être formé avec ces paramètres.</p>
               </div>
+            ) : (
+              <div className="empty-state">
+                <span aria-hidden="true">Aa</span>
+                <p>Lancez une génération pour afficher vos propositions.</p>
+              </div>
             )}
 
             <div className="insight-card">
+              {hasGenerated ? <>
               <div>
                 <p className="section-index">Caractère suivant</p>
                 <h2>Testez un début de mot</h2>
@@ -1768,6 +1821,9 @@ export default function Home() {
                   </p>
                 )}
               </div>
+              </> : <p className="insight-unavailable" role="status">
+                Générez une série pour voir les probabilités de vos sources.
+              </p>}
             </div>
           </section>
         </section>

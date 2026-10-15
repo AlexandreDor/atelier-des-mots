@@ -1,0 +1,60 @@
+[
+  {
+    "id": "en-mots",
+    "name": "Anglais · mots courants",
+    "language": "Anglais",
+    "category": "Mots courants",
+    "source": "Google 10,000 English · first20hours",
+    "sourceUrl": "https://github.com/first20hours/google-10000-english",
+    "license": "LicenseRef-Google-10000-English",
+    "licenseUrl": "https://github.com/first20hours/google-10000-english/blob/master/LICENSE.md",
+    "attribution": "Google Web Trillion Word Corpus, Peter Norvig et Josh Kaufman",
+    "sourceVersion": "Export amont non consigné · import du 2026-07-28",
+    "accessedAt": "2026-07-28",
+    "transformations": "Sélection, normalisation Unicode, suppression de ponctuation et dédoublonnage.",
+    "usageRestriction": "Conservé pour un usage personnel et non commercial. La licence amont ne couvre pas clairement la redistribution commerciale.",
+    "licenseReviewedAt": "2026-08-01",
+    "status": "suspended",
+    "suspensionReason": "Droits de redistribution non clarifiés; suspendu de la distribution active.",
+    "wordCount": 9974
+  },
+  {
+    "id": "fr-nature-animaux",
+    "name": "Français · animaux TAXREF",
+    "words": [],
+    "status": "suspended",
+    "suspensionReason": "Retiré de la distribution active : les conditions amont de redistribution en ligne sont contradictoires.",
+    "source": "TAXREF · fiche GBIF",
+    "sourceUrl": "https://www.gbif.org/dataset/0e61f8fe-7d25-4f81-ada7-d970bbb2c6d6",
+    "license": "CC BY 4.0 · conditions amont contradictoires",
+    "licenseUrl": "https://www.gbif.org/dataset/0e61f8fe-7d25-4f81-ada7-d970bbb2c6d6",
+    "sourceVersion": "Ancien corpus retiré · contenu non conservé dans les fichiers distribués",
+    "usageRestriction": "La fiche indique CC BY 4.0 mais interdit la transmission d’une copie et la mise en ligne sans autorisation."
+  },
+  {
+    "id": "fr-nature-plantes",
+    "name": "Français · plantes TAXREF",
+    "words": [],
+    "status": "suspended",
+    "suspensionReason": "Retiré de la distribution active : les conditions amont de redistribution en ligne sont contradictoires.",
+    "source": "TAXREF · fiche GBIF",
+    "sourceUrl": "https://www.gbif.org/dataset/0e61f8fe-7d25-4f81-ada7-d970bbb2c6d6",
+    "license": "CC BY 4.0 · conditions amont contradictoires",
+    "licenseUrl": "https://www.gbif.org/dataset/0e61f8fe-7d25-4f81-ada7-d970bbb2c6d6",
+    "sourceVersion": "Ancien corpus retiré · contenu non conservé dans les fichiers distribués",
+    "usageRestriction": "La fiche indique CC BY 4.0 mais interdit la transmission d’une copie et la mise en ligne sans autorisation."
+  },
+  {
+    "id": "fr-nature-champignons",
+    "name": "Français · champignons TAXREF",
+    "words": [],
+    "status": "suspended",
+    "suspensionReason": "Retiré de la distribution active : les conditions amont de redistribution en ligne sont contradictoires.",
+    "source": "TAXREF · fiche GBIF",
+    "sourceUrl": "https://www.gbif.org/dataset/0e61f8fe-7d25-4f81-ada7-d970bbb2c6d6",
+    "license": "CC BY 4.0 · conditions amont contradictoires",
+    "licenseUrl": "https://www.gbif.org/dataset/0e61f8fe-7d25-4f81-ada7-d970bbb2c6d6",
+    "sourceVersion": "Ancien corpus retiré · contenu non conservé dans les fichiers distribués",
+    "usageRestriction": "La fiche indique CC BY 4.0 mais interdit la transmission d’une copie et la mise en ligne sans autorisation."
+  }
+]

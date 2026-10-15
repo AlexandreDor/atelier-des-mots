@@ -1,5 +1,7 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
+import { updateDictionaryCorpora } from "./dictionary-inventory.mjs";
 import { DATASET_METADATA } from "./dataset-metadata.mjs";
+import { sourceSnapshot, snapshotProvenance } from "./source-snapshots.mjs";
 
 const [geonamesPath] = process.argv.slice(2);
 
@@ -77,14 +79,9 @@ function buildNames(places) {
   );
 }
 
-const [geonamesText, dictionariesText] = await Promise.all([
-  readFile(geonamesPath, "utf8"),
-  readFile(
-    new URL("../app/data/place-dictionaries.json", import.meta.url),
-    "utf8",
-  ),
-]);
+const geonamesText = await readFile(geonamesPath, "utf8");
 const words = buildNames(parseGeoNames(geonamesText));
+const provenance = snapshotProvenance(await sourceSnapshot([geonamesPath]));
 
 if (words.length !== TARGET_COUNT) {
   throw new Error(
@@ -97,15 +94,13 @@ const dictionary = {
   name: "Russie · villes, bourgs et villages (romanisé)",
   words,
   ...DATASET_METADATA[DICTIONARY_ID],
+  ...provenance,
 };
-const dictionaries = JSON.parse(dictionariesText).filter(
-  ({ id }) => id !== DICTIONARY_ID,
-);
-dictionaries.push(dictionary);
-
-await writeFile(
-  new URL("../app/data/place-dictionaries.json", import.meta.url),
-  `${JSON.stringify(dictionaries)}\n`,
-);
+await updateDictionaryCorpora((collections) => ({
+  "place-dictionaries.json": [
+    ...collections["place-dictionaries.json"].filter(({ id }) => id !== DICTIONARY_ID),
+    dictionary,
+  ],
+}));
 
 console.log(`${DICTIONARY_ID}: ${words.length}`);

@@ -20,6 +20,14 @@ CC BY 4.0 sur la redistribution en ligne. Le détail est consigné dans
 `scripts/build-nature-dictionaries.mjs` reconstruit uniquement le corpus de
 minéraux à partir des pages alphabétiques de la liste.
 
+```bash
+node scripts/build-nature-dictionaries.mjs /chemin/absolu/mineral-pages
+```
+
+Le répertoire contient les réponses JSON de l’API Wikipédia, nommées
+`minerals-A.json`, `minerals-B.json`, etc., dont `parse.wikitext` contient
+le texte de chaque page alphabétique.
+
 ## Noms de lieux
 
 La route `/lieux` propose trois générateurs spécialisés :
@@ -103,9 +111,98 @@ Le corpus russe peut
 node scripts/build-russian-place-dictionary.mjs RU.txt
 ```
 
+Les scripts de reconstruction n’attribuent plus aux fichiers `latest` la date
+fixe des corpus intégrés. Chaque corpus reconstruit consigne désormais le nom
+de chaque fichier d’entrée, son empreinte SHA-256 et l’heure à laquelle cette
+empreinte a été calculée. Cette heure décrit la capture locale de l’entrée au
+build; elle ne prétend pas être sa date de téléchargement amont. Les dates
+historiques connues des corpus déjà intégrés restent documentées séparément.
+
+Chaque commande de reconstruction actualise aussi automatiquement
+`app/data/dictionary-inventory.json`, utilisé par `/licences`, depuis les
+fichiers des corpus actifs et suspendus. Les noms, volumes, licences et
+empreintes y reprennent exactement les métadonnées des corpus, sans rétablir
+les anciennes dates. Les commandes peuvent être lancées en parallèle, y compris
+lorsqu’elles modifient le même fichier : la fusion avec les corpus les plus
+récents et la publication de l’inventaire partagent un verrou interprocessus
+`flock`. La préparation et le hachage des sources restent hors du verrou.
+
+La validation de tous les corpus précède leur publication. Chaque fichier JSON
+est préparé dans un fichier temporaire puis remplacé atomiquement, et l’inventaire
+est publié en dernier. La commande `--check` prend le même verrou pour éviter
+une lecture pendant la publication. L’attente du verrou est limitée à 30 secondes
+et un processus interrompu le libère automatiquement. Le fichier local
+`app/data/.dictionary-data.lock` est ignoré par Git ; ne pas le supprimer pendant
+une reconstruction. Si une interruption survient entre deux remplacements,
+`--check` détecte l’écart et `--write` permet de reconstruire l’inventaire.
+
+Pour vérifier la synchronisation sans modifier les données :
+
+```bash
+node scripts/dictionary-inventory.mjs --check
+```
+
+Après une modification manuelle des métadonnées,
+`node scripts/dictionary-inventory.mjs --write` régénère uniquement l’inventaire.
+Le script `scripts/apply-dataset-metadata.mjs` le met également à jour et
+préserve les empreintes et dates issues des reconstructions.
+
 Le générateur principal propose également un corpus de 3 337 noms de voies
 londoniennes extrait de Wikimedia Commons (CC BY-SA 4.0), dans le thème
 « Lieux ».
+
+## Données locales
+
+Les anciennes sauvegardes de dictionnaires, favoris et préréglages sont lues
+sans troncature. Les limites de 100 dictionnaires, 100 000 mots par liste,
+250 000 mots cumulés et 60 lettres par nouveau mot s’appliquent aux nouveaux
+imports et ajouts. Une liste historique plus grande reste consultable,
+exportable, renommable et réductible. De même, les limites de 300 favoris et
+50 préréglages empêchent de nouveaux ajouts sans réduire les collections
+existantes.
+
+L’export JSON utilise une sauvegarde identifiée de version 2, réimportable
+sans perdre les mots ou champs historiques dépassant ces limites. Les anciens
+exports de l’application, de forme `{ "version": 1, "dictionaries": [...] }`,
+bénéficient de la même conservation : noms et mots longs, collections de plus
+de 100 listes et volumes historiques restent restaurables. La limite de fichier
+de 64 Mo et la validation de chaque dictionnaire restent applicables. Une
+sauvegarde invalide ou contenant un identifiant de corpus retiré est refusée
+explicitement, sans restauration partielle. Les tableaux de dictionnaires et
+les fichiers sans marqueur de sauvegarde restent soumis aux limites des nouveaux
+imports. Si une entrée est malformée, contient des mots qui ne sont pas du texte
+ou dépasse une limite, le fichier entier est refusé avec une erreur explicite,
+sans importer une partie des listes.
+
+Une lecture invalide ou une migration interrompue n’autorise aucune écriture
+sur les données concernées. La migration conserve la sauvegarde v1 ; le bouton
+de reprise relit les données après un échec de chargement, ou réessaie les
+modifications en mémoire après un échec d’enregistrement. Les dictionnaires
+récupérés lors d’un échec de quota peuvent être exportés avant la reprise.
+
+Les téléchargements des corpus sont également récupérables : une tentative
+échouée est retirée du cache, et la reprise effectue une nouvelle requête sans
+recharger la page. Les routes du générateur, de l’analyse et des lieux partagent
+les mêmes ressources JSON. La page des lieux charge son lexique au lancement
+de la génération et écarte les résultats lorsque les réglages ont changé
+pendant le chargement.
+
+Lorsqu’une sauvegarde v1 contient des ajouts personnels à l’ancien corpus
+anglais `en-mots`, la migration les récupère dans une liste « Ajouts · Anglais ».
+Elle distingue ces ajouts des mots intégrés à l’aide d’empreintes SHA-256 de la
+dernière version distribuée. La table de récupération ne contient aucun mot
+du lexique suspendu. Un échec de téléchargement ou une migration abandonnée
+ne remplace pas la sauvegarde historique par un v2 vide.
+
+Les empreintes sont reproductibles depuis la révision Git historique indiquée
+dans le fichier (un clone contenant cette révision est nécessaire) :
+
+```bash
+node --import tsx scripts/build-retired-dictionary-fingerprints.mjs --check
+```
+
+Remplacer `--check` par `--write` pour régénérer la table depuis cette même
+révision, sans télécharger ni réintroduire le corpus anglais.
 
 ## Licences
 
@@ -119,9 +216,11 @@ londoniennes extrait de Wikimedia Commons (CC BY-SA 4.0), dans le thème
 - Une synthèse lisible est également disponible sur la route `/licences` du
   site.
 
-Le corpus anglais de mots courants (`en-mots`) est volontairement conservé sans
-modification pour un usage personnel et non commercial ; sa licence amont
-spécifique reste signalée dans le manifeste.
+Le corpus anglais de mots courants (`en-mots`) est suspendu. Seules sa fiche de
+provenance et sa taille sont conservées dans
+`app/data/suspended-dictionaries.json`; le lexique lui-même est absent des
+fichiers de données courants et du bundle tant que ses droits de redistribution
+ne sont pas clarifiés. Le détail figure dans [`DATA_LICENSES.md`](DATA_LICENSES.md).
 
 ## Prerequisites
 
@@ -213,11 +312,31 @@ actions tied to the current ChatGPT user. Leave public content anonymous.
 - `npm run dev`: start the Vite/Vinext development server
 - `npm run build`: build and validate the deployable Sites artifact
 - `npm run start`: start the built Vinext application
-- `npm test`: build, validate, and verify the rendered development-preview metadata
+- `npm test`: run generator, analysis, persistence, import and reconstruction tests, build, validate the artifact, and check rendered HTML and corpus metadata
+- `npm run test:browser`: check recovery, exports and place generation against the production build in Chromium
+- `npm audit --audit-level=high`: enforce the same dependency security threshold as CI
+- `npm run check:datasets`: verify corpus inventory synchronization without writing data
 - `npm run validate:artifact`: recheck an existing artifact's manifest and ESM `default.fetch` export
 - `npm run db:generate`: generate Drizzle migrations after schema changes
 
 Use build and validation commands for targeted diagnosis after a remote failure, not as part of the normal checkpoint path.
+
+Browser checks require the production artifact produced by `npm test` and a
+Playwright Chromium installation:
+
+```bash
+npx playwright install --with-deps chromium
+npm run test:browser
+```
+
+The Next lint and Vite dynamic-import glob calls use the project-owned adapter
+in [`packages/fast-glob-compat`](packages/fast-glob-compat/README.md). It preserves
+their supported synchronous APIs and validates a limited pattern grammar before
+parsing, rejecting nested alternatives and ambiguous wildcard repetitions.
+Dependency updates must pass its caller integration tests; the adapter
+does not implement the entire upstream `fast-glob` API. Drizzle's legacy loader
+uses a scoped, patched esbuild version, with TypeScript transform controls in
+the same test suite. CI retains the full lint rules and strict audit threshold.
 
 The timeout defaults can be overridden for a controlled canary with `SITES_INSTALL_TIMEOUT`, `SITES_INSTALL_KILL_AFTER`, `SITES_BUILD_TIMEOUT`, and `SITES_BUILD_KILL_AFTER`. A timeout fails the command; the helpers never retry an unchanged install or build.
 

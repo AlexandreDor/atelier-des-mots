@@ -17,7 +17,6 @@ obligation ne s’étend pas au code indépendant de l’application.
 | `it-mots` | [FrequencyWords](https://github.com/hermitdave/FrequencyWords), contenu OpenSubtitles `content/2016`, import du 28 juillet 2026 | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) pour le contenu | Sélection des 10 000 premiers termes, normalisation et dédoublonnage. Attribution : Hermit Dave et contributeurs d’OpenSubtitles. |
 | `ja-mots-romaji` | FrequencyWords/OpenSubtitles `content/2016`, import du 28 juillet 2026 | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) pour le contenu | Sélection puis romanisation avec [Kuroshiro](https://github.com/hexenq/kuroshiro) (MIT), normalisation et dédoublonnage. |
 | `ru-mots-cyrillique`, `ru-mots-romanise` | FrequencyWords/OpenSubtitles `content/2016`, import du 28 juillet 2026 | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) pour le contenu | Sélection, normalisation et dédoublonnage ; romanisation supplémentaire pour le second corpus. |
-| `en-mots` | [Google 10,000 English](https://github.com/first20hours/google-10000-english), export amont non consigné, import du 28 juillet 2026 | [Licence amont spécifique](https://github.com/first20hours/google-10000-english/blob/master/LICENSE.md) | **Usage personnel et non commercial uniquement dans ce projet.** La licence amont ne couvre pas clairement une redistribution commerciale. Le contenu du corpus n’a pas été modifié lors de cette mise en conformité. |
 | `fr-prenoms`, `en-prenoms`, `de-prenoms`, `it-prenoms`, `es-prenoms`, `ru-prenoms-cyrillique`, `ru-prenoms-romanise`, `ja-prenoms-romaji` | Données de [@faker-js/faker](https://github.com/faker-js/faker), version amont non consignée, import du 28 juillet 2026 | MIT | Normalisation et dédoublonnage ; romanisation des variantes concernées. Les avis complets sont conservés dans [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). |
 | `en-rues-routes` | Titres des catégories alphabétiques de [Streets in London by name](https://commons.wikimedia.org/wiki/Category:Streets_in_London_by_name), import du 1er août 2026 | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) | Extraction d’au plus 200 titres par catégorie alphabétique, retrait des précisions géographiques, normalisation et dédoublonnage. Attribution : contributeurs de Wikimedia Commons et historiques des pages liées. |
 | `ru-rues-routes-romanise` | Titres de la catégorie [Streets in Moscow by name](https://commons.wikimedia.org/wiki/Category:Streets_in_Moscow_by_name), état non consigné, import du 28 juillet 2026 | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) | Extraction des titres, romanisation, normalisation et dédoublonnage. Attribution : contributeurs de Wikimedia Commons et historiques des pages liées. |
@@ -36,6 +35,22 @@ une fiche.
 
 ## Corpus suspendus
 
+La fiche et le volume du corpus `en-mots` sont conservés dans
+`app/data/suspended-dictionaries.json`; le lexique lui-même n’est plus présent
+dans les fichiers de données courants ni dans le bundle livré à l’application tant que les droits
+de redistribution ne sont pas clarifiés. Il comprend 9 974 mots et
+provient de [Google 10,000 English](https://github.com/first20hours/google-10000-english)
+avec une licence amont spécifique qui réserve son usage au personnel et au non
+commercial dans les informations disponibles.
+
+La récupération des ajouts personnels des sauvegardes v1 utilise
+`app/data/retired-dictionary-fingerprints.json`. Cette table conserve uniquement
+les empreintes SHA-256 des mots normalisés de la dernière version distribuée,
+la révision Git `320cafa206385e25cc197c4e9a41e58fd3bd90a1` et l’empreinte de son
+fichier source. Elle ne contient aucun mot du corpus suspendu et n’est pas
+comptée parmi les lexiques actifs. La migration exporte uniquement les ajouts
+qui ne correspondent pas à ces empreintes ; la sauvegarde v1 reste conservée.
+
 Les corpus `fr-nature-animaux`, `fr-nature-plantes` et
 `fr-nature-champignons`, auparavant dérivés de TAXREF, ont été retirés des
 fichiers distribués le 1er août 2026. La fiche GBIF de TAXREF affiche à la fois
@@ -45,6 +60,8 @@ suspendus jusqu’à clarification écrite du producteur ou remplacement par une
 source compatible.
 
 Référence de l’anomalie : [fiche TAXREF sur GBIF](https://www.gbif.org/dataset/0e61f8fe-7d25-4f81-ada7-d970bbb2c6d6).
+Leurs fiches restent visibles dans `app/data/suspended-dictionaries.json` ;
+aucun de leurs mots n’est conservé ni compté dans le paquet distribué.
 
 ## Redistribution
 

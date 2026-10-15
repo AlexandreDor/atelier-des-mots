@@ -38,6 +38,19 @@ test("renders development preview metadata", async () => {
 
 test("renders the current license inventory summary", async () => {
   const html = await render("/licences");
-  assert.match(html, /<dt>Corpus actifs<\/dt><dd>32<\/dd>/);
-  assert.match(html, /Inventaire révisé le 9 août 2026\./);
+  assert.match(html, /<dt>Corpus actifs<\/dt><dd>31<\/dd>/);
+  assert.match(html, /en-mots/);
+  assert.match(html, /<dt>Mots suspendus<\/dt><dd>9 974<\/dd>/);
+});
+
+test("renders route metadata and explicit initial place state", async () => {
+  const analysis = await render("/analyse");
+  assert.match(analysis, /<title>Analyse des mots · Atelier des mots<\/title>/);
+  assert.match(analysis, /name="description" content="Comparez les scores de mots/);
+
+  const places = await render("/lieux");
+  assert.match(places, /<title>Générateur de noms de lieux · Atelier des mots<\/title>/);
+  assert.match(places, /Générez des noms de lieux français ou des noms russes romanisés/);
+  assert.match(places, /lancez une génération pour afficher les propositions/i);
+  assert.doesNotMatch(places, /Valebrune|Novoradsk/);
 });

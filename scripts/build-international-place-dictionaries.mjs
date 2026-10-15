@@ -1,5 +1,7 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
+import { updateDictionaryCorpora } from "./dictionary-inventory.mjs";
 import { DATASET_METADATA } from "./dataset-metadata.mjs";
+import { sourceSnapshot, snapshotProvenance } from "./source-snapshots.mjs";
 import {
   POPULATED_PLACE_CODES,
   collectCleanNames,
@@ -35,10 +37,18 @@ const TARGET_COUNTS = {
   spainRoads: 5000,
 };
 
-function withMetadata(id, name, words) {
+const snapshots = {
+  GB: snapshotProvenance(await sourceSnapshot([gbPath])),
+  HU: snapshotProvenance(await sourceSnapshot([huPath])),
+  ES: snapshotProvenance(await sourceSnapshot([esPath])),
+  roadsHU: snapshotProvenance(await sourceSnapshot([huRoadsPath])),
+  roadsES: snapshotProvenance(await sourceSnapshot([esRoadsPath, esCanaryRoadsPath])),
+};
+
+function withMetadata(id, name, words, provenance) {
   const metadata = DATASET_METADATA[id];
   if (!metadata) throw new Error(`Métadonnées manquantes : ${id}`);
-  return { id, name, words, ...metadata };
+  return { id, name, words, ...metadata, ...provenance };
 }
 
 function cityNames(tsv, countryCode, target, admin1Code = null, locale = "en") {
@@ -97,14 +107,10 @@ function roadNames(values, kind, target, locale) {
   };
 }
 
-const [gbText, huText, esText, existingText] = await Promise.all([
+const [gbText, huText, esText] = await Promise.all([
   readFile(gbPath, "utf8"),
   readFile(huPath, "utf8"),
   readFile(esPath, "utf8"),
-  readFile(
-    new URL("../app/data/place-dictionaries.json", import.meta.url),
-    "utf8",
-  ),
 ]);
 
 const [huRoadCandidates, esRoadCandidates] = await Promise.all([
@@ -145,34 +151,35 @@ const internationalDictionaries = [
     "en-lieux-villes",
     "Angleterre · villes et bourgs",
     englandCities.names,
+    snapshots.GB,
   ),
   withMetadata(
     "hu-lieux-villes",
     "Hongrie · villes et bourgs",
     hungaryCities.names,
+    snapshots.HU,
   ),
   withMetadata(
     "es-lieux-villes",
     "Espagne · villes et bourgs",
     spainCities.names,
+    snapshots.ES,
   ),
   withMetadata(
     "hu-rues-routes",
     "Hongrie · noms de rues et routes",
     hungaryRoads.names,
+    snapshots.roadsHU,
   ),
   withMetadata(
     "es-rues-routes",
     "Espagne · noms de rues et routes",
     spainRoads.names,
+    snapshots.roadsES,
   ),
 ];
 
 const targets = new Set(internationalDictionaries.map(({ id }) => id));
-const existing = JSON.parse(existingText).filter(
-  ({ id }) => !targets.has(id),
-);
-const dictionaries = [...existing, ...internationalDictionaries];
 
 for (const dictionary of internationalDictionaries) {
   const expected =
@@ -206,10 +213,12 @@ for (const [id, audit] of [
   );
 }
 
-await writeFile(
-  new URL("../app/data/place-dictionaries.json", import.meta.url),
-  `${JSON.stringify(dictionaries)}\n`,
-);
+await updateDictionaryCorpora((collections) => ({
+  "place-dictionaries.json": [
+    ...collections["place-dictionaries.json"].filter(({ id }) => !targets.has(id)),
+    ...internationalDictionaries,
+  ],
+}));
 
 console.log(
   internationalDictionaries

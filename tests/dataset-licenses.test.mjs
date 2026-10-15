@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
@@ -20,9 +19,15 @@ const dictionaries = (
     dataFiles.map(async (path) => JSON.parse(await readFile(path, "utf8"))),
   )
 ).flat();
+const suspended = JSON.parse(
+  await readFile("app/data/suspended-dictionaries.json", "utf8"),
+);
+const inventory = JSON.parse(
+  await readFile("app/data/dictionary-inventory.json", "utf8"),
+);
 
 test("chaque corpus actif possède une provenance et une licence", () => {
-  assert.equal(dictionaries.length, 32);
+  assert.equal(dictionaries.length, 31);
   for (const dictionary of dictionaries) {
     for (const key of [
       "source",
@@ -165,15 +170,30 @@ test("le corpus de voies anglaises est présent et normalisé", () => {
   assert.ok(streets.words.every((word) => /^\p{L}+$/u.test(word)));
 });
 
-test("le corpus anglais reste inchangé", () => {
-  const english = dictionaries.find(({ id }) => id === "en-mots");
+test("les métadonnées anglaises suspendues ne conservent pas le lexique", () => {
+  const english = suspended.find(({ id }) => id === "en-mots");
   assert.ok(english);
-  const fingerprint = createHash("sha256")
-    .update(JSON.stringify(english.words))
-    .digest("hex");
-  assert.equal(english.words.length, 9974);
-  assert.equal(
-    fingerprint,
-    "d283c0910bc1a42e24a861094f7e884ef0180a9bb7c6ea711ccb10d911dd9ff7",
-  );
+  assert.equal(Object.hasOwn(english, "words"), false);
+  assert.equal(english.wordCount, 9974);
+  assert.equal(english.status, "suspended");
+  assert.match(english.suspensionReason, /droits de redistribution non clarifiés/iu);
+});
+
+test("les corpus distribués correspondent aux métadonnées de leur fichier", () => {
+  const ids = dictionaries.map(({ id }) => id);
+  assert.equal(new Set(ids).size, ids.length);
+  assert.equal(ids.includes("en-mots"), false);
+  assert.equal(suspended.filter(({ status }) => status === "suspended").length, 4);
+  assert.equal(inventory.active.length, dictionaries.length);
+  assert.equal(inventory.suspended.length, suspended.length);
+  for (const dictionary of dictionaries) {
+    const manifestEntry = inventory.active.find(({ id }) => id === dictionary.id);
+    assert.ok(manifestEntry, dictionary.id);
+    const { words, ...metadata } = dictionary;
+    assert.deepEqual(manifestEntry, { ...metadata, wordCount: words.length }, dictionary.id);
+  }
+  assert.deepEqual(inventory.suspended, suspended.map(({ words, ...metadata }) => ({
+    ...metadata,
+    wordCount: metadata.wordCount ?? words?.length ?? 0,
+  })));
 });

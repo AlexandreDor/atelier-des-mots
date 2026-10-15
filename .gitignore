@@ -40,3 +40,6 @@ next-env.d.ts
 /.sites-runtime/
 /outputs/
 /work/
+
+# Kernel lock shared by corpus reconstruction and inventory checks.
+/app/data/.dictionary-data.lock
